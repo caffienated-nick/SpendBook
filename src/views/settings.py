@@ -22,7 +22,10 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
             label_list.controls = [ft.Text("No labels yet. Add one below.", color=ft.Colors.GREY)]
         else:
             label_list.controls = [_build_label_row(l) for l in labels]
-        label_list.update()
+        # Only call update() if this control is already on the page --
+        # the very first call happens before show_dialog(), when it isn't yet.
+        if label_list.page:
+            label_list.update()
 
     def _build_label_row(label):
         def handle_delete(e, lid=label["id"]):
