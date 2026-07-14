@@ -51,7 +51,14 @@ def main(page: ft.Page):
         icon=ft.Icons.ADD,
     )
 
-    page.add(body)
+    page.add(
+    ft.SafeArea(
+        ft.Container(
+            content=body,
+            expand=True,
+        )
+    )
+)
 
 
 ft.run(main)

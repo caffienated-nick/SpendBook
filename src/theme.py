@@ -8,4 +8,4 @@ def apply_theme(page: ft.Page):
         color_scheme_seed=ft.Colors.GREEN
     )
 
-    page.padding = 15
+    page.padding = 16
