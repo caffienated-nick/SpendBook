@@ -16,15 +16,18 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
 
     label_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=220)
 
+    dialog_mounted = {"value": False}
+
     def refresh_list():
         labels = get_labels()
         if not labels:
             label_list.controls = [ft.Text("No labels yet. Add one below.", color=ft.Colors.GREY)]
         else:
             label_list.controls = [_build_label_row(l) for l in labels]
-        # Only call update() if this control is already on the page --
-        # the very first call happens before show_dialog(), when it isn't yet.
-        if label_list.page:
+        # Only call update() once the dialog has actually been shown --
+        # before that, this control isn't attached to the page and
+        # accessing/using .page raises instead of returning None.
+        if dialog_mounted["value"]:
             label_list.update()
 
     def _build_label_row(label):
