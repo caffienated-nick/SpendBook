@@ -34,87 +34,24 @@ def initialize_database():
     );
     """)
 
-    conn.commit()
+    # Debts/Dues: money the shop owes someone ("due"), or money someone
+    # owes the shop ("debt"/udhaar). `settled` marks it as cleared without
+    # deleting the history.
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS debts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        person_name TEXT NOT NULL,
+        amount REAL NOT NULL,
+        type TEXT NOT NULL,          -- 'debt' (they owe shop) or 'due' (shop owes them)
+        note TEXT,
+        created_at TEXT NOT NULL,
+        settled INTEGER NOT NULL DEFAULT 0
+    );
+    """)
 
-    # Seed a few default labels the first time the app runs, so the
-    # "add transaction" form isn't empty on a fresh install.
-    cursor = conn.execute("SELECT COUNT(*) FROM labels")
-    if cursor.fetchone()[0] == 0:
-        defaults = [
-            ("Food", "🍔", "orange"),
-            ("Transport", "🚌", "blue"),
-            ("Shopping", "🛍️", "purple"),
-            ("Salary", "💼", "green"),
-            ("Other", "📦", "grey"),
-        ]
-        conn.executemany(
-            "INSERT INTO labels (name, emoji, color) VALUES (?, ?, ?)",
-            defaults,
-        )
-        conn.commit()
-
-    conn.close()
-
-
-def get_labels():
-    """Return all labels as a list of sqlite3.Row (dict-like access)."""
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM labels ORDER BY name").fetchall()
-    conn.close()
-    return rows
-
-
-def add_transaction(amount: float, type_: str, label_id: int | None, note: str, created_at: str):
-    """Insert a new transaction. type_ is 'expense' or 'income'."""
-    conn = get_connection()
-    conn.execute(
-        """
-        INSERT INTO transactions (amount, type, label_id, note, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (amount, type_, label_id, note, created_at),
-    )
     conn.commit()
     conn.close()
 
-
-def get_transactions():
-    """Return all transactions, newest first, joined with their label info."""
-    conn = get_connection()
-    rows = conn.execute(
-        """
-        SELECT t.id, t.amount, t.type, t.note, t.created_at,
-               l.name AS label_name, l.emoji AS label_emoji
-        FROM transactions t
-        LEFT JOIN labels l ON l.id = t.label_id
-        ORDER BY t.created_at DESC, t.id DESC
-        """
-    ).fetchall()
-    conn.close()
-    return rows
-
-
-def delete_transaction(transaction_id: int):
-    conn = get_connection()
-    conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
-    conn.commit()
-    conn.close()
-
-
-def get_balance():
-    """Income total minus expense total."""
-    conn = get_connection()
-    row = conn.execute(
-        """
-        SELECT
-            COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) -
-            COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)
-            AS balance
-        FROM transactions
-        """
-    ).fetchone()
-    conn.close()
-    return row["balance"]
 
 # ---------------------------------------------------------------------------
 # Labels
@@ -139,6 +76,18 @@ def add_label(name: str, emoji: str = "", color: str = ""):
     new_id = cursor.lastrowid
     conn.close()
     return new_id
+
+
+def delete_label(label_id: int):
+    """
+    Delete a label. Transactions that used it keep their label_id, which
+    will just no longer match anything -- get_transactions()'s LEFT JOIN
+    means they'll show as "Uncategorized" instead of erroring.
+    """
+    conn = get_connection()
+    conn.execute("DELETE FROM labels WHERE id = ?", (label_id,))
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -201,3 +150,65 @@ def get_balance():
     conn.close()
     return row["balance"]
 
+
+# ---------------------------------------------------------------------------
+# Debts / Dues
+# ---------------------------------------------------------------------------
+
+def get_debts(include_settled: bool = False):
+    """
+    Return debt/due entries, unsettled first (then newest first).
+    By default hides settled ones so the list only shows what's outstanding.
+    """
+    conn = get_connection()
+    query = "SELECT * FROM debts"
+    if not include_settled:
+        query += " WHERE settled = 0"
+    query += " ORDER BY settled ASC, created_at DESC, id DESC"
+    rows = conn.execute(query).fetchall()
+    conn.close()
+    return rows
+
+
+def add_debt(person_name: str, amount: float, type_: str, note: str, created_at: str):
+    """type_ is 'debt' (they owe the shop / udhaar) or 'due' (shop owes them)."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO debts (person_name, amount, type, note, created_at, settled) "
+        "VALUES (?, ?, ?, ?, ?, 0)",
+        (person_name, amount, type_, note, created_at),
+    )
+    conn.commit()
+    conn.close()
+
+
+def settle_debt(debt_id: int):
+    """Mark a debt/due as cleared without deleting its history."""
+    conn = get_connection()
+    conn.execute("UPDATE debts SET settled = 1 WHERE id = ?", (debt_id,))
+    conn.commit()
+    conn.close()
+
+
+def delete_debt(debt_id: int):
+    conn = get_connection()
+    conn.execute("DELETE FROM debts WHERE id = ?", (debt_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_debt_totals():
+    """
+    Returns (total_they_owe_us, total_we_owe_them) for unsettled entries --
+    handy for a summary line at the top of the Dues tab.
+    """
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT
+            COALESCE(SUM(CASE WHEN type = 'debt' THEN amount ELSE 0 END), 0) AS owed_to_us,
+            COALESCE(SUM(CASE WHEN type = 'due' THEN amount ELSE 0 END), 0) AS we_owe
+        FROM debts
+        WHERE settled = 0
+    """).fetchone()
+    conn.close()
+    return row["owed_to_us"], row["we_owe"]

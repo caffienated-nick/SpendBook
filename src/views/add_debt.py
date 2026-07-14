@@ -1,44 +1,32 @@
 import flet as ft
 from datetime import datetime
 
-from database import get_labels, add_transaction
+from database import add_debt
 
 
-def open_add_transaction_dialog(page: ft.Page, on_saved):
-    """Build and open the 'add transaction' dialog.
+def open_add_debt_dialog(page: ft.Page, on_saved):
+    """
+    Dialog for recording a debt/due entry.
 
-    on_saved: a callback with no args, invoked after a successful save so
-    the caller (main.py) can refresh whatever view needs updating.
+    'debt'  = someone owes the shop money (udhaar / credit given to a customer)
+    'due'   = the shop owes someone money (e.g. a supplier)
     """
 
-    labels = get_labels()
-
+    name_field = ft.TextField(label="Person / party name", autofocus=True)
     amount_field = ft.TextField(
         label="Amount",
         prefix="₹",
         keyboard_type=ft.KeyboardType.NUMBER,
-        autofocus=True,
     )
-
     note_field = ft.TextField(label="Note (optional)")
 
     type_toggle = ft.SegmentedButton(
-        selected=["income"],
+        selected=["debt"],
         allow_multiple_selection=False,
         segments=[
-            ft.Segment(value="expense", label=ft.Text("Expense")),
-            ft.Segment(value="income", label=ft.Text("Income")),
+            ft.Segment(value="debt", label=ft.Text("They owe us")),
+            ft.Segment(value="due", label=ft.Text("We owe them")),
         ],
-    )
-
-    label_dropdown = ft.Dropdown(
-        label="Label" if labels else "Label (add some in Settings first)",
-        options=[
-            ft.dropdown.Option(key=str(l["id"]), text=f"{l['emoji']} {l['name']}")
-            for l in labels
-        ],
-        value=str(labels[0]["id"]) if labels else None,
-        disabled=not labels,
     )
 
     error_text = ft.Text(value="", color=ft.Colors.RED_400, visible=False)
@@ -47,10 +35,17 @@ def open_add_transaction_dialog(page: ft.Page, on_saved):
         page.pop_dialog()
 
     def save(e):
-        # Basic validation: amount must be present and a positive number.
-        raw = amount_field.value.strip() if amount_field.value else ""
+        name = (name_field.value or "").strip()
+        raw_amount = (amount_field.value or "").strip()
+
+        if not name:
+            error_text.value = "Enter a name."
+            error_text.visible = True
+            page.update()
+            return
+
         try:
-            amount = float(raw)
+            amount = float(raw_amount)
             if amount <= 0:
                 raise ValueError
         except ValueError:
@@ -60,12 +55,11 @@ def open_add_transaction_dialog(page: ft.Page, on_saved):
             return
 
         type_ = next(iter(type_toggle.selected))
-        label_id = int(label_dropdown.value) if label_dropdown.value else None
 
-        add_transaction(
+        add_debt(
+            person_name=name,
             amount=amount,
             type_=type_,
-            label_id=label_id,
             note=note_field.value or "",
             created_at=datetime.now().isoformat(timespec="seconds"),
         )
@@ -75,12 +69,12 @@ def open_add_transaction_dialog(page: ft.Page, on_saved):
 
     dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text("Add Transaction"),
+        title=ft.Text("Add Debt / Due"),
         content=ft.Column(
             [
                 type_toggle,
+                name_field,
                 amount_field,
-                label_dropdown,
                 note_field,
                 error_text,
             ],
