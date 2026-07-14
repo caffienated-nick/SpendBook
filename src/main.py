@@ -5,7 +5,8 @@ from theme import apply_theme
 
 from views.transactions import TransactionsView
 from views.stats import StatsView
- 
+from views.add_transaction import open_add_transaction_dialog
+
 
 def main(page: ft.Page):
 
@@ -47,8 +48,14 @@ def main(page: ft.Page):
         on_change=change_tab,
     )
 
+    transactions_view = pages[0]  # keep a typed reference so we can call .refresh()
+
+    def handle_add_click(e):
+        open_add_transaction_dialog(page, on_saved=transactions_view.refresh)
+
     page.floating_action_button = ft.FloatingActionButton(
         icon=ft.Icons.ADD,
+        on_click=handle_add_click,
     )
 
     page.add(
