@@ -73,7 +73,7 @@ class TransactionsView(ft.Column):
             self.refresh()
 
         return ft.Container(
-            padding=ft.padding.symmetric(vertical=8, horizontal=4),
+            padding=ft.Padding(left=4, right=4, top=8, bottom=8),
             content=ft.Row(
                 [
                     ft.Text(label, size=20),

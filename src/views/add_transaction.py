@@ -14,16 +14,16 @@ def open_add_transaction_dialog(page: ft.Page, on_saved):
     labels = get_labels()
 
     amount_field = ft.TextField(
-        label="Amount",
-        prefix_text="₹",
-        keyboard_type=ft.KeyboardType.NUMBER,
-        autofocus=True,
-    )
+    label="Amount",
+    prefix="₹",   # was: prefix_text="₹"
+    keyboard_type=ft.KeyboardType.NUMBER,
+    autofocus=True,
+)
 
     note_field = ft.TextField(label="Note (optional)")
 
     type_toggle = ft.SegmentedButton(
-        selected={"expense"},
+        selected=["expense"],
         allow_multiple_selection=False,
         segments=[
             ft.Segment(value="expense", label=ft.Text("Expense")),
@@ -43,8 +43,7 @@ def open_add_transaction_dialog(page: ft.Page, on_saved):
     error_text = ft.Text(value="", color=ft.Colors.RED_400, visible=False)
 
     def close_dialog(e=None):
-        page.close(dialog)
-
+       page.pop_dialog()
     def save(e):
         # Basic validation: amount must be present and a positive number.
         raw = amount_field.value.strip() if amount_field.value else ""
@@ -93,4 +92,4 @@ def open_add_transaction_dialog(page: ft.Page, on_saved):
         actions_alignment=ft.MainAxisAlignment.END,
     )
 
-    page.open(dialog)
+    page.show_dialog(dialog)
