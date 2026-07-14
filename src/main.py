@@ -1,25 +1,57 @@
 import flet as ft
 
+from database import initialize_database
+from theme import apply_theme
+
+from views.transactions import TransactionsView
+from views.stats import StatsView
+ 
 
 def main(page: ft.Page):
-    counter = ft.Text("0", size=50, data=0)
 
-    def increment_click(e):
-        counter.data += 1
-        counter.value = str(counter.data)
+    initialize_database()
+
+    apply_theme(page)
+
+    page.title = "SpendBook"
+
+    pages = [
+        TransactionsView(),
+        StatsView(),
+    ]
+
+    body = ft.Container(
+        expand=True,
+        content=pages[0],
+    )
+
+    def change_tab(e):
+
+        body.content = pages[e.control.selected_index]
+        page.update()
+
+    page.navigation_bar = ft.NavigationBar(
+
+        destinations=[
+            ft.NavigationBarDestination(
+                icon=ft.Icons.RECEIPT_LONG,
+                label="Transactions",
+            ),
+
+            ft.NavigationBarDestination(
+                icon=ft.Icons.INSIGHTS,
+                label="Stats",
+            ),
+        ],
+
+        on_change=change_tab,
+    )
 
     page.floating_action_button = ft.FloatingActionButton(
-        icon=ft.Icons.ADD, on_click=increment_click
+        icon=ft.Icons.ADD,
     )
-    page.add(
-        ft.SafeArea(
-            expand=True,
-            content=ft.Container(
-                content=counter,
-                alignment=ft.Alignment.CENTER,
-            ),
-        )
-    )
+
+    page.add(body)
 
 
 ft.run(main)
