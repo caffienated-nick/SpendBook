@@ -1,5 +1,5 @@
 # Spendbook app
-#UNDERCONSTRUCTION
+# UNDERCONSTRUCTION
 ## Run the app
 
 ### uv
