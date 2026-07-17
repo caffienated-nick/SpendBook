@@ -30,8 +30,14 @@ def main(page: ft.Page):
         content=pages[0],
     )
 
+    # The FAB's behavior depends on which tab is currently open: on the
+    # Transactions tab it adds a transaction, on the Dues tab it adds a
+    # debt/due entry. We track the current tab index for this.
+    current_tab = {"index": 0}
+
     def change_tab(e):
-        body.content = pages[e.control.selected_index]
+        current_tab["index"] = e.control.selected_index
+        body.content = pages[current_tab["index"]]
         page.update()
 
     page.navigation_bar = ft.NavigationBar(
@@ -68,18 +74,6 @@ def main(page: ft.Page):
             ),
         ],
     )
-
-    # The FAB's behavior depends on which tab is currently open: on the
-    # Transactions tab it adds a transaction, on the Dues tab it adds a
-    # debt/due entry. We track the current tab index for this.
-    current_tab = {"index": 0}
-
-    def change_tab(e):
-        current_tab["index"] = e.control.selected_index
-        body.content = pages[current_tab["index"]]
-        page.update()
-
-    page.navigation_bar.on_change = change_tab
 
     def handle_fab_click(e):
         if current_tab["index"] == 1:

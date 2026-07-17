@@ -90,3 +90,5 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
 
     refresh_list()
     page.show_dialog(dialog)
+    dialog_mounted["value"] = True
+    refresh_list()
