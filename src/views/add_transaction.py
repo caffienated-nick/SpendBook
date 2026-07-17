@@ -76,16 +76,19 @@ def open_add_transaction_dialog(page: ft.Page, on_saved):
     dialog = ft.AlertDialog(
         modal=True,
         title=ft.Text("Add Transaction"),
-        content=ft.Column(
-            [
-                type_toggle,
-                amount_field,
-                label_dropdown,
-                note_field,
-                error_text,
-            ],
-            tight=True,
-            spacing=12,
+        content=ft.Container(
+            width=280,
+            content=ft.Column(
+                [
+                    type_toggle,
+                    amount_field,
+                    label_dropdown,
+                    note_field,
+                    error_text,
+                ],
+                tight=True,
+                spacing=12,
+            ),
         ),
         actions=[
             ft.TextButton("Cancel", on_click=close_dialog),

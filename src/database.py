@@ -212,3 +212,78 @@ def get_debt_totals():
     """).fetchone()
     conn.close()
     return row["owed_to_us"], row["we_owe"]
+
+# ---------------------------------------------------------------------------
+# Stats
+# ---------------------------------------------------------------------------
+
+def get_spending_by_label(days: int = 30):
+    """
+    Total expense amount per label over the last `days` days, highest
+    first. Uses SQLite's datetime('now', '-N days') to filter, so the
+    cutoff is computed by the database, not Python -- keeps timezones and
+    date math in one place.
+    """
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT
+            COALESCE(l.name, 'Uncategorized') AS label_name,
+            COALESCE(l.emoji, '') AS label_emoji,
+            SUM(t.amount) AS total
+        FROM transactions t
+        LEFT JOIN labels l ON l.id = t.label_id
+        WHERE t.type = 'expense'
+          AND t.created_at >= datetime('now', ?)
+        GROUP BY t.label_id
+        ORDER BY total DESC
+    """, (f'-{days} days',)).fetchall()
+    conn.close()
+    return rows
+
+
+def get_daily_totals(days: int = 14):
+    """
+    Income and expense totals per calendar day for the last `days` days,
+    oldest first (natural order for a line/bar chart).
+    Days with zero activity are included as 0/0 so the chart doesn't skip
+    dates -- computed in Python by filling gaps around the SQL result.
+    """
+    conn = get_connection()
+    rows = conn.execute("""
+        SELECT
+            date(created_at) AS day,
+            COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
+            COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
+        FROM transactions
+        WHERE created_at >= datetime('now', ?)
+        GROUP BY day
+        ORDER BY day ASC
+    """, (f'-{days} days',)).fetchall()
+    conn.close()
+
+    from datetime import date, timedelta
+    by_day = {r["day"]: (r["income"], r["expense"]) for r in rows}
+    today = date.today()
+    result = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        income, expense = by_day.get(d, (0, 0))
+        result.append({"day": d, "income": income, "expense": expense})
+    return result
+
+
+def get_summary_totals(days: int = 30):
+    """
+    Total income and expense over the last `days` days -- for a
+    'this month at a glance' summary above the charts.
+    """
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT
+            COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
+            COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
+        FROM transactions
+        WHERE created_at >= datetime('now', ?)
+    """, (f'-{days} days',)).fetchone()
+    conn.close()
+    return row["income"], row["expense"]

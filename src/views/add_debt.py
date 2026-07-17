@@ -70,16 +70,19 @@ def open_add_debt_dialog(page: ft.Page, on_saved):
     dialog = ft.AlertDialog(
         modal=True,
         title=ft.Text("Add Debt / Due"),
-        content=ft.Column(
-            [
-                type_toggle,
-                name_field,
-                amount_field,
-                note_field,
-                error_text,
-            ],
-            tight=True,
-            spacing=12,
+        content=ft.Container(
+            width=280,
+            content=ft.Column(
+                [
+                    type_toggle,
+                    name_field,
+                    amount_field,
+                    note_field,
+                    error_text,
+                ],
+                tight=True,
+                spacing=12,
+            ),
         ),
         actions=[
             ft.TextButton("Cancel", on_click=close_dialog),

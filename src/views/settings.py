@@ -10,11 +10,11 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     caller can refresh anything that shows a label list/dropdown.
     """
 
-    name_field = ft.TextField(label="Label name", autofocus=True)
-    emoji_field = ft.TextField(label="Emoji (optional)", width=100)
+    name_field = ft.TextField(label="Label name", autofocus=True, expand=True)
+    emoji_field = ft.TextField(label="Emoji (optional)", width=90)
     error_text = ft.Text(value="", color=ft.Colors.RED_400, visible=False)
 
-    label_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=220)
+    label_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=160)
 
     dialog_mounted = {"value": False}
 
@@ -70,16 +70,18 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     dialog = ft.AlertDialog(
         modal=True,
         title=ft.Text("Manage Labels"),
-        content=ft.Column(
-            [
-                label_list,
-                ft.Divider(),
-                ft.Row([name_field, emoji_field], spacing=8),
-                error_text,
-            ],
-            tight=True,
-            spacing=12,
-            width=320,
+        content=ft.Container(
+            width=280,
+            content=ft.Column(
+                [
+                    label_list,
+                    ft.Divider(),
+                    ft.Row([name_field, emoji_field], spacing=8),
+                    error_text,
+                ],
+                tight=True,
+                spacing=12,
+            ),
         ),
         actions=[
             ft.TextButton("Add", on_click=handle_add),
