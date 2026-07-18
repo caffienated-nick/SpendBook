@@ -1,0 +1,70 @@
+name: Build Android APK
+
+# Runs whenever you push to main, or manually from the Actions tab
+# (the "Run workflow" button) if you want to trigger a build without
+# pushing new code.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    # Generous but bounded -- flet build apk's first-time Flutter/Android
+    # SDK setup can be slow; this stops a genuinely stuck build from
+    # burning your GitHub Actions minutes indefinitely.
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Java 17
+        # flet build apk needs a JDK; ubuntu-latest runners come with
+        # Android SDK preinstalled but we pin Java explicitly to avoid
+        # relying on whatever default happens to be on the image.
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install project dependencies
+        run: uv sync
+
+      - name: Run tests before building
+        # Fail fast: if the database layer is broken, there's no point
+        # spending 15+ minutes building an APK around it.
+        run: uv run pytest
+
+      - name: Confirm Android SDK is available on this runner
+        # ubuntu-latest runners come with the Android SDK preinstalled and
+        # ANDROID_SDK_ROOT already set -- we just point ANDROID_HOME at
+        # the same place (some tools, including Flet, look for
+        # ANDROID_HOME specifically) rather than hardcoding a path that
+        # could silently go stale if GitHub changes their runner image.
+        run: |
+          echo "ANDROID_SDK_ROOT is: $ANDROID_SDK_ROOT"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          ls "$ANDROID_SDK_ROOT"
+
+      - name: Build APK
+        run: uv run flet build apk
+
+      - name: Upload APK as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spendbook-apk
+          path: build/apk/*.apk
+          # Artifacts don't need to live forever -- this is a working
+          # build you'll download and install within days, not an
+          # official release archive.
+          retention-days: 14
