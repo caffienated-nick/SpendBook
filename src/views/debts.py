@@ -1,6 +1,9 @@
 import flet as ft
 
-from database import get_debts, get_debt_totals, settle_debt, delete_debt, is_debt_overdue
+from database import (
+    get_debts, get_debt_totals, settle_debt, delete_debt, is_debt_overdue, DatabaseError,
+)
+from views.ui_helpers import run_safely, confirm_delete, show_error
 
 
 class DebtsView(ft.Column):
@@ -44,11 +47,16 @@ class DebtsView(ft.Column):
         self.refresh()
 
     def refresh(self):
-        owed_to_us, we_owe = get_debt_totals()
+        try:
+            owed_to_us, we_owe = get_debt_totals()
+            rows = get_debts()
+        except DatabaseError as e:
+            show_error(self.page_ref, f"Couldn't load debts: {e}")
+            return
+
         self.owed_to_us_text.value = f"₹{owed_to_us:,.2f}"
         self.we_owe_text.value = f"₹{we_owe:,.2f}"
 
-        rows = get_debts()
         if not rows:
             self.debt_list.controls = [ft.Text("No outstanding debts or dues.")]
         else:
@@ -63,12 +71,22 @@ class DebtsView(ft.Column):
         overdue = is_debt_overdue(row["created_at"], overdue_days=7)
 
         def handle_settle(e, did=row["id"]):
-            settle_debt(did)
-            self.refresh()
+            run_safely(
+                self.page_ref,
+                action=lambda: settle_debt(did),
+                on_success=self.refresh,
+                error_prefix="Couldn't mark as settled",
+            )
 
-        def handle_delete(e, did=row["id"]):
-            delete_debt(did)
-            self.refresh()
+        def handle_delete(e, did=row["id"], desc=f"{row['person_name']} (₹{row['amount']:,.2f})"):
+            def do_delete():
+                run_safely(
+                    self.page_ref,
+                    action=lambda: delete_debt(did),
+                    on_success=self.refresh,
+                    error_prefix="Couldn't delete entry",
+                )
+            confirm_delete(self.page_ref, desc, on_confirm=do_delete)
 
         def handle_edit(e, debt=row):
             from views.add_debt import open_add_debt_dialog

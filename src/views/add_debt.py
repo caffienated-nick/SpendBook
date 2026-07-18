@@ -1,7 +1,7 @@
 import flet as ft
 from datetime import datetime
 
-from database import add_debt, update_debt
+from database import add_debt, update_debt, DatabaseError
 
 
 def open_add_debt_dialog(page: ft.Page, on_saved, existing=None):
@@ -69,22 +69,28 @@ def open_add_debt_dialog(page: ft.Page, on_saved, existing=None):
 
         type_ = next(iter(type_toggle.selected))
 
-        if is_edit:
-            update_debt(
-                debt_id=existing["id"],
-                person_name=name,
-                amount=amount,
-                type_=type_,
-                note=note_field.value or "",
-            )
-        else:
-            add_debt(
-                person_name=name,
-                amount=amount,
-                type_=type_,
-                note=note_field.value or "",
-                created_at=datetime.now().isoformat(timespec="seconds"),
-            )
+        try:
+            if is_edit:
+                update_debt(
+                    debt_id=existing["id"],
+                    person_name=name,
+                    amount=amount,
+                    type_=type_,
+                    note=note_field.value or "",
+                )
+            else:
+                add_debt(
+                    person_name=name,
+                    amount=amount,
+                    type_=type_,
+                    note=note_field.value or "",
+                    created_at=datetime.now().isoformat(timespec="seconds"),
+                )
+        except DatabaseError as db_err:
+            error_text.value = f"Couldn't save: {db_err}"
+            error_text.visible = True
+            page.update()
+            return
 
         close_dialog()
         on_saved()

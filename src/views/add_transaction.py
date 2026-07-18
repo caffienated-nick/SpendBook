@@ -1,7 +1,8 @@
 import flet as ft
 from datetime import datetime
 
-from database import get_labels, add_transaction, update_transaction
+from database import get_labels, add_transaction, update_transaction, DatabaseError
+from views.ui_helpers import show_error
 
 
 def open_add_transaction_dialog(page: ft.Page, on_saved, existing=None):
@@ -15,7 +16,11 @@ def open_add_transaction_dialog(page: ft.Page, on_saved, existing=None):
     near-identical dialogs to maintain.
     """
 
-    labels = get_labels()
+    try:
+        labels = get_labels()
+    except DatabaseError as e:
+        show_error(page, f"Couldn't load labels: {e}")
+        labels = []
     is_edit = existing is not None
 
     amount_field = ft.TextField(
@@ -78,22 +83,30 @@ def open_add_transaction_dialog(page: ft.Page, on_saved, existing=None):
         type_ = next(iter(type_toggle.selected))
         label_id = int(label_dropdown.value) if label_dropdown.value else None
 
-        if is_edit:
-            update_transaction(
-                transaction_id=existing["id"],
-                amount=amount,
-                type_=type_,
-                label_id=label_id,
-                note=note_field.value or "",
-            )
-        else:
-            add_transaction(
-                amount=amount,
-                type_=type_,
-                label_id=label_id,
-                note=note_field.value or "",
-                created_at=datetime.now().isoformat(timespec="seconds"),
-            )
+        try:
+            if is_edit:
+                update_transaction(
+                    transaction_id=existing["id"],
+                    amount=amount,
+                    type_=type_,
+                    label_id=label_id,
+                    note=note_field.value or "",
+                )
+            else:
+                add_transaction(
+                    amount=amount,
+                    type_=type_,
+                    label_id=label_id,
+                    note=note_field.value or "",
+                    created_at=datetime.now().isoformat(timespec="seconds"),
+                )
+        except DatabaseError as db_err:
+            # Leave the dialog open with the user's input intact rather
+            # than losing what they typed -- they can retry the save.
+            error_text.value = f"Couldn't save: {db_err}"
+            error_text.visible = True
+            page.update()
+            return
 
         close_dialog()
         on_saved()

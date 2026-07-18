@@ -1,13 +1,33 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("spendbook.db")
+# Anchored to this file's directory rather than the process's current
+# working directory. CWD can differ depending on how the app is launched
+# (double-clicked exe, `flet run` from a different folder, packaged
+# Android build) -- a relative path risks creating/reading a *different*
+# spendbook.db each time, which would look like data silently vanishing.
+DB_PATH = Path(__file__).resolve().parent / "spendbook.db"
+
+
+class DatabaseError(Exception):
+    """Raised when a database operation fails. UI code catches this
+    specifically (rather than bare Exception) so a real bug elsewhere
+    doesn't get silently swallowed by the same handler."""
+    pass
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        # busy_timeout makes SQLite retry for up to 5s instead of raising
+        # "database is locked" immediately if another connection is
+        # mid-write -- unlikely with this app's short-lived connections,
+        # but cheap insurance.
+        conn.execute("PRAGMA busy_timeout = 5000")
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.Error as e:
+        raise DatabaseError(f"Could not open database: {e}") from e
 
 
 def initialize_database():
@@ -428,33 +448,3 @@ def build_debts_csv() -> str:
             r["amount"], r["note"] or "", "yes" if r["settled"] else "no",
         ])
     return buf.getvalue()
-
-
-def export_transactions_csv(path: str):
-    """Write all transactions to a CSV file at `path`. Returns the row count."""
-    import csv
-    rows = get_transactions()
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["id", "date", "type", "amount", "label", "note"])
-        for r in rows:
-            writer.writerow([
-                r["id"], r["created_at"], r["type"], r["amount"],
-                r["label_name"] or "", r["note"] or "",
-            ])
-    return len(rows)
-
-
-def export_debts_csv(path: str):
-    """Write all debts/dues (including settled) to a CSV file. Returns row count."""
-    import csv
-    rows = get_debts(include_settled=True)
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["id", "date", "person", "type", "amount", "note", "settled"])
-        for r in rows:
-            writer.writerow([
-                r["id"], r["created_at"], r["person_name"], r["type"],
-                r["amount"], r["note"] or "", "yes" if r["settled"] else "no",
-            ])
-    return len(rows)

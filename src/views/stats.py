@@ -1,6 +1,6 @@
 import flet as ft
 
-from database import get_summary_totals, get_spending_by_label, get_daily_totals
+from database import get_summary_totals, get_spending_by_label, get_daily_totals, DatabaseError
 
 
 class StatsView(ft.Column):
@@ -59,7 +59,13 @@ class StatsView(ft.Column):
         self.refresh()
 
     def refresh(self):
-        income, expense = get_summary_totals(days=30)
+        try:
+            income, expense = get_summary_totals(days=30)
+        except DatabaseError as e:
+            self.controls = [ft.Text(f"Couldn't load stats: {e}", color=ft.Colors.RED_400)]
+            self.update()
+            return
+
         net = income - expense
 
         self.income_text.value = f"₹{income:,.0f}"
@@ -73,7 +79,12 @@ class StatsView(ft.Column):
         self.update()
 
     def _render_label_breakdown(self):
-        rows = get_spending_by_label(days=30)
+        try:
+            rows = get_spending_by_label(days=30)
+        except DatabaseError as e:
+            self.label_breakdown.controls = [ft.Text(f"Couldn't load: {e}", color=ft.Colors.RED_400)]
+            return
+
         if not rows:
             self.label_breakdown.controls = [ft.Text("No expenses yet in the last 30 days.", color=ft.Colors.GREY)]
             return
@@ -110,7 +121,12 @@ class StatsView(ft.Column):
         self.label_breakdown.controls = controls
 
     def _render_daily_trend(self):
-        days = get_daily_totals(days=14)
+        try:
+            days = get_daily_totals(days=14)
+        except DatabaseError as e:
+            self.daily_trend.controls = [ft.Text(f"Couldn't load: {e}", color=ft.Colors.RED_400)]
+            return
+
         max_val = max((d["income"] for d in days), default=0)
         max_val = max(max_val, max((d["expense"] for d in days), default=0), 1)
 

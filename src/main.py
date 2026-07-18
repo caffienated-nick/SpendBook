@@ -1,6 +1,6 @@
 import flet as ft
 
-from database import initialize_database, get_setting
+from database import initialize_database, get_setting, DatabaseError
 from theme import apply_theme
 
 from views.transactions import TransactionsView
@@ -14,11 +14,28 @@ from views.pin_lock import build_pin_lock_view
 
 def main(page: ft.Page):
 
-    initialize_database()
-
     apply_theme(page)
-
     page.title = "SpendBook"
+
+    # If the database can't even be opened/initialized (corrupt file,
+    # permissions issue, disk full), show a real message instead of a
+    # blank screen or an uncaught traceback the user can't do anything
+    # with.
+    try:
+        initialize_database()
+    except DatabaseError as e:
+        page.add(
+            ft.Column(
+                [
+                    ft.Icon(ft.Icons.ERROR_OUTLINE, size=40, color=ft.Colors.RED_400),
+                    ft.Text("SpendBook couldn't start", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Text(str(e), size=12, color=ft.Colors.GREY, text_align=ft.TextAlign.CENTER),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=8,
+            )
+        )
+        return
 
     def build_app():
         """Builds the real app UI. Called immediately if PIN lock is off,
@@ -104,10 +121,16 @@ def main(page: ft.Page):
 
     # If the PIN lock is enabled, show the unlock screen first and only
     # build the real app once the correct PIN is entered. Off by default,
-    # so a fresh install skips straight to the app.
-    pin_enabled = get_setting("pin_enabled", "false") == "true"
+    # so a fresh install skips straight to the app. If reading the setting
+    # fails, fail *open* (skip the lock) rather than stranding the user on
+    # a screen they can't get past.
+    try:
+        pin_enabled = get_setting("pin_enabled", "false") == "true"
+        pin_code = get_setting("pin_code") if pin_enabled else None
+    except DatabaseError:
+        pin_enabled, pin_code = False, None
 
-    if pin_enabled and get_setting("pin_code"):
+    if pin_enabled and pin_code:
         def on_unlocked():
             build_app()
 

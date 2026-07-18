@@ -1,6 +1,7 @@
 import flet as ft
 
-from database import get_transactions, get_balance, delete_transaction, get_daily_closing
+from database import get_transactions, get_balance, delete_transaction, get_daily_closing, DatabaseError
+from views.ui_helpers import run_safely, confirm_delete, show_error
 
 
 class TransactionsView(ft.Column):
@@ -50,17 +51,23 @@ class TransactionsView(ft.Column):
         self.refresh()
 
     def refresh(self):
-        balance = get_balance()
-        self.balance_text.value = f"₹{balance:,.2f}"
+        # A read failure here (e.g. DB file briefly locked or unreadable)
+        # would otherwise crash the whole app on load/reload. Instead show
+        # a clear error and leave the view in its last-known-good state.
+        try:
+            balance = get_balance()
+            closing = get_daily_closing()
+            rows = get_transactions()
+        except DatabaseError as e:
+            show_error(self.page_ref, f"Couldn't load transactions: {e}")
+            return
 
-        closing = get_daily_closing()
+        self.balance_text.value = f"₹{balance:,.2f}"
         self.closing_text.value = (
             f"Today: +₹{closing['income']:,.0f} / -₹{closing['expense']:,.0f}  "
             f"(net {'+' if closing['net'] >= 0 else ''}₹{closing['net']:,.0f}, "
             f"{closing['count']} txns)"
         )
-
-        rows = get_transactions()
 
         if not rows:
             self.transaction_list.controls = [ft.Text("No transactions yet.")]
@@ -82,9 +89,15 @@ class TransactionsView(ft.Column):
         label = row["label_emoji"] or "❓"
         label_name = row["label_name"] or "Uncategorized"
 
-        def handle_delete(e, tid=row["id"]):
-            delete_transaction(tid)
-            self.refresh()
+        def handle_delete(e, tid=row["id"], desc=f"{row['note'] or label_name} (₹{row['amount']:,.2f})"):
+            def do_delete():
+                run_safely(
+                    self.page_ref,
+                    action=lambda: delete_transaction(tid),
+                    on_success=self.refresh,
+                    error_prefix="Couldn't delete transaction",
+                )
+            confirm_delete(self.page_ref, desc, on_confirm=do_delete)
 
         def handle_edit(e, tx=row):
             # Local import avoids a circular import (add_transaction.py

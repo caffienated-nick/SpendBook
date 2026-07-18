@@ -4,7 +4,25 @@ from database import (
     get_labels, add_label, delete_label,
     get_setting, set_setting,
     build_transactions_csv, build_debts_csv,
+    DatabaseError,
 )
+from views.ui_helpers import show_error
+
+
+def _get_or_create_file_picker(page: ft.Page) -> ft.FilePicker:
+    """
+    Reuse a single FilePicker stashed on the page instead of appending a
+    fresh one to page.overlay every time Settings is opened -- otherwise
+    the overlay list grows by one FilePicker per open for the life of the
+    session, which is a slow, silent memory leak.
+    """
+    existing = getattr(page, "_spendbook_file_picker", None)
+    if existing is not None:
+        return existing
+    picker = ft.FilePicker()
+    page.overlay.append(picker)
+    page._spendbook_file_picker = picker
+    return picker
 
 
 def open_settings_dialog(page: ft.Page, on_labels_changed):
@@ -27,7 +45,14 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     dialog_mounted = {"value": False}
 
     def refresh_list():
-        labels = get_labels()
+        try:
+            labels = get_labels()
+        except DatabaseError as e:
+            label_list.controls = [ft.Text(f"Couldn't load labels: {e}", color=ft.Colors.RED_400)]
+            if dialog_mounted["value"]:
+                label_list.update()
+            return
+
         if not labels:
             label_list.controls = [ft.Text("No labels yet. Add one below.", color=ft.Colors.GREY)]
         else:
@@ -40,7 +65,11 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
 
     def _build_label_row(label):
         def handle_delete(e, lid=label["id"]):
-            delete_label(lid)
+            try:
+                delete_label(lid)
+            except DatabaseError as db_err:
+                show_error(page, f"Couldn't delete label: {db_err}")
+                return
             refresh_list()
             on_labels_changed()
 
@@ -64,7 +93,14 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
             page.update()
             return
 
-        add_label(name=name, emoji=(emoji_field.value or "").strip())
+        try:
+            add_label(name=name, emoji=(emoji_field.value or "").strip())
+        except DatabaseError as db_err:
+            label_error_text.value = f"Couldn't save: {db_err}"
+            label_error_text.visible = True
+            page.update()
+            return
+
         name_field.value = ""
         emoji_field.value = ""
         label_error_text.visible = False
@@ -77,31 +113,39 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     # -----------------------------------------------------------------
 
     export_status = ft.Text("", size=12, color=ft.Colors.GREEN_600)
+    file_picker = _get_or_create_file_picker(page)
 
-    file_picker = ft.FilePicker()
-    page.overlay.append(file_picker)
-    page.update()
-
-    # Which CSV to write is decided by which button was tapped; stashed
-    # here so the picker's completion (if we needed a callback) or the
-    # direct await below can use it.
     async def handle_export_transactions(e):
-        content = build_transactions_csv()
+        try:
+            content = build_transactions_csv()
+        except DatabaseError as db_err:
+            export_status.value = f"Export failed: {db_err}"
+            export_status.color = ft.Colors.RED_400
+            page.update()
+            return
         result = await file_picker.save_file(
             dialog_title="Save transactions CSV",
             file_name="spendbook_transactions.csv",
             src_bytes=content.encode("utf-8"),
         )
+        export_status.color = ft.Colors.GREEN_600
         export_status.value = "Transactions exported." if result else ""
         page.update()
 
     async def handle_export_debts(e):
-        content = build_debts_csv()
+        try:
+            content = build_debts_csv()
+        except DatabaseError as db_err:
+            export_status.value = f"Export failed: {db_err}"
+            export_status.color = ft.Colors.RED_400
+            page.update()
+            return
         result = await file_picker.save_file(
             dialog_title="Save debts/dues CSV",
             file_name="spendbook_debts.csv",
             src_bytes=content.encode("utf-8"),
         )
+        export_status.color = ft.Colors.GREEN_600
         export_status.value = "Debts/dues exported." if result else ""
         page.update()
 
@@ -122,14 +166,20 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
 
     def handle_pin_toggle(e):
         enabling = pin_switch.value
-        if enabling:
-            if not get_setting("pin_code"):
-                new_pin_field.visible = True
-                page.update()
-                return
-            set_setting("pin_enabled", "true")
-        else:
-            set_setting("pin_enabled", "false")
+        try:
+            if enabling:
+                if not get_setting("pin_code"):
+                    new_pin_field.visible = True
+                    page.update()
+                    return
+                set_setting("pin_enabled", "true")
+            else:
+                set_setting("pin_enabled", "false")
+        except DatabaseError as db_err:
+            pin_error_text.value = f"Couldn't update: {db_err}"
+            pin_error_text.visible = True
+            # Revert the switch visually since the change didn't persist.
+            pin_switch.value = not enabling
         page.update()
 
     def handle_save_pin(e):
@@ -139,8 +189,14 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
             pin_error_text.visible = True
             page.update()
             return
-        set_setting("pin_code", pin)
-        set_setting("pin_enabled", "true")
+        try:
+            set_setting("pin_code", pin)
+            set_setting("pin_enabled", "true")
+        except DatabaseError as db_err:
+            pin_error_text.value = f"Couldn't save PIN: {db_err}"
+            pin_error_text.visible = True
+            page.update()
+            return
         pin_error_text.visible = False
         new_pin_field.visible = False
         page.update()
