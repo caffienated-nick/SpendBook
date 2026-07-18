@@ -57,7 +57,13 @@ jobs:
           ls "$ANDROID_SDK_ROOT"
 
       - name: Build APK
-        run: uv run flet build apk
+        # --yes auto-confirms the "install Flutter/Android SDK?" prompt.
+        # Without it, flet build apk blocks waiting for interactive input
+        # that doesn't exist in a CI environment, and fails with EOFError.
+        # --no-rich-output avoids rich's progress-bar/spinner rendering,
+        # which can produce garbled or unreliable output in a non-TTY
+        # CI log.
+        run: uv run flet build apk --yes --no-rich-output
 
       - name: Upload APK as a build artifact
         uses: actions/upload-artifact@v4
