@@ -1,8 +1,17 @@
-# SpendBook
+<p align="center">
+  <img src="src/assets/icon.png" width="120" alt="SpendBook icon">
+</p>
 
-A simple, offline-first expense and udhaar (credit/debt) tracker built for
-small shops. Built with [Flet](https://flet.dev) (Python + Flutter), runs
-as an Android app, desktop app, or in the browser, and stores everything
+<h1 align="center">SpendBook</h1>
+
+<p align="center">
+  A simple, offline-first expense and udhaar (credit/debt) tracker built for small shops.
+</p>
+
+---
+
+Built with [Flet](https://flet.dev) (Python + Flutter), runs as an
+Android app, desktop app, or in the browser, and stores everything
 locally in a SQLite database — no account, no internet connection, no
 cloud sync required.
 
@@ -27,8 +36,8 @@ for a family shop.
   breakdown, and a 14-day daily trend, all computed from the same local
   database.
 - **CSV export** — export transactions or debts/dues to a CSV file
-  through the device's native save dialog. (Requires a real APK build —
-  see note under Testing below.)
+  through the device's native save dialog. Requires a real APK build —
+  doesn't work in the `flet run` live-preview app (see note below).
 - **Optional PIN lock** — off by default. When enabled in Settings, the
   app opens to a PIN entry screen before showing any data.
 - **Works fully offline.** All data lives in a local SQLite file
@@ -38,36 +47,38 @@ for a family shop.
 
 - Python 3.10 or newer
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- For building an actual Android APK: Android SDK + Flutter, which
-  `flet build apk` will download automatically on first run if missing
-  (requires an internet connection and can take a while the first time)
+- A local Android SDK + Flutter setup is **not required** — see
+  "Building the Android APK" below for why.
 
 ## Project structure
 
 ```
 SpendBook/
 ├── pyproject.toml          # dependencies, app metadata, Android package id
+├── .github/
+│   └── workflows/
+│       └── build-apk.yml    # builds the APK in the cloud on every push
 ├── src/
-│   ├── main.py              # app entry point, navigation, PIN-lock gate
-│   ├── database.py          # all SQLite access -- the only file that
-│   │                         #   talks to the database directly
-│   ├── theme.py              # color scheme / theme mode
+│   ├── main.py               # app entry point, navigation, PIN-lock gate
+│   ├── database.py           # all SQLite access -- the only file that
+│   │                          #   talks to the database directly
+│   ├── theme.py               # color scheme / theme mode
 │   ├── assets/
-│   │   ├── icon.png           # app icon (universal)
-│   │   ├── icon_android.png   # app icon (Android, no transparency)
-│   │   └── splash_android.png # splash screen
+│   │   ├── icon.png            # app icon (universal)
+│   │   ├── icon_android.png    # app icon (Android, no transparency)
+│   │   └── splash_android.png  # splash screen
 │   └── views/
-│       ├── transactions.py    # Transactions tab
-│       ├── debts.py           # Debts & Dues tab
-│       ├── stats.py           # Stats tab
-│       ├── add_transaction.py # add/edit transaction dialog
-│       ├── add_debt.py        # add/edit debt dialog
-│       ├── settings.py        # labels, export, PIN lock toggle
-│       ├── pin_lock.py        # PIN entry screen
-│       └── ui_helpers.py      # shared error banner + confirm-delete dialog
+│       ├── transactions.py     # Transactions tab
+│       ├── debts.py            # Debts & Dues tab
+│       ├── stats.py            # Stats tab
+│       ├── add_transaction.py  # add/edit transaction dialog
+│       ├── add_debt.py         # add/edit debt dialog
+│       ├── settings.py         # labels, export, PIN lock toggle
+│       ├── pin_lock.py         # PIN entry screen
+│       └── ui_helpers.py       # shared error banner + confirm-delete dialog
 └── tests/
-    ├── conftest.py           # pytest fixture: fresh temp database per test
-    └── test_database.py      # tests for database.py
+    ├── conftest.py            # pytest fixture: fresh temp database per test
+    └── test_database.py       # tests for database.py
 ```
 
 ## Running the app (development)
@@ -103,26 +114,66 @@ the same Wi-Fi network).
 > **Known limitation of this preview mode:** the Flet mobile preview app
 > bundles its own fixed Flet client version, independent of this
 > project's pinned version. Some newer controls (e.g. the file picker
-> used for CSV export) may not work in preview and will only work in a
-> real APK build — see below.
+> used for CSV export) aren't supported in preview and only work in a
+> real APK build.
 
 ## Building the Android APK
 
+### Why this uses GitHub Actions instead of a local build
+
+`flet build apk` needs a full Android SDK + Flutter toolchain on your
+machine. In practice, on Windows this repeatedly failed for two separate
+reasons that are worth documenting here in case they resurface:
+
+1. **Developer Mode wasn't enabled.** Flutter needs symlink support to
+   build with plugins, which Windows only allows once Developer Mode is
+   turned on (`Settings → Privacy & security → For developers`).
+2. **Flet's own "install Android SDK automatically" prompt didn't
+   actually complete the install.** It reported success, but
+   `ANDROID_HOME` ended up pointing at an empty/missing folder, and
+   `flutter doctor` kept failing the Android toolchain check.
+
+Rather than fight the Windows-specific setup further, the APK is built
+in the cloud instead: **`.github/workflows/build-apk.yml`** runs
+`flet build apk` on a GitHub-hosted Ubuntu runner, which already has a
+working Android SDK preinstalled — no local SDK/Flutter setup needed at
+all.
+
+One extra fix was needed to make this work in CI specifically:
+`flet build apk` interactively asks "install Flutter SDK now? [y/n]",
+which hangs forever (and then crashes with `EOFError`) in a
+non-interactive CI shell with no terminal to answer it. The workflow
+passes `--yes` to auto-confirm that prompt, and `--no-rich-output` to
+avoid Rich's progress-bar rendering producing garbled CI log output.
+
+### How to trigger a build
+
+Push to `main` (or click **Run workflow** manually from the Actions tab
+if you want to trigger one without pushing new code):
+
 ```bash
-uv run flet build apk
+git add .
+git commit -m "your message"
+git push
 ```
 
-On the first run this will download the JDK, Android SDK, and Flutter if
-they aren't already installed — this needs an internet connection and can
-take 10–20+ minutes the first time; rebuilds after that are much faster.
+Then:
 
-The resulting `.apk` will be in `build/apk/`. Copy it to your phone and
-open it to install (Android will warn about installing from an unknown
-source since it isn't from the Play Store — this is expected).
+1. Go to your repo on GitHub → the **Actions** tab
+2. Open the running/most recent **Build Android APK** workflow
+3. Wait for it to finish (green checkmark). It runs the full pytest
+   suite first and fails fast if that doesn't pass, before spending time
+   on the actual build.
+4. Scroll to the bottom of that run's page → **Artifacts** → download
+   **spendbook-apk** (a `.zip` containing the `.apk`)
+5. Transfer the `.apk` to your phone (USB, or upload/download via
+   Drive/email) and tap it to install. Android will warn about
+   installing from an unknown source since it isn't from the Play Store
+   — this is expected for a personal build.
 
 This build is debug-signed, which is fine for installing on your own
-device. If you ever want to publish to the Play Store, you'll need to set
-up a proper release keystore first (a separate, one-time step, not
+device. If you ever want to publish to the Play Store, you'll need to
+set up a proper release keystore first (a separate, one-time step, not
 covered here).
 
 ### Android package identifier
@@ -139,18 +190,21 @@ upload. Don't change it casually once you've started using real builds.
 ### Automated tests (database layer)
 
 ```bash
-uv add --dev pytest   # first time only
 uv run pytest         # run all tests
 uv run pytest -v      # verbose: show each test name
 ```
 
-Tests use a fresh temporary SQLite database per test (see
-`tests/conftest.py`), so they never touch your real `spendbook.db`.
+`pytest` is already declared as a dev dependency in `pyproject.toml`, so
+`uv sync` installs it automatically. Tests use a fresh temporary SQLite
+database per test (see `tests/conftest.py`), so they never touch your
+real `spendbook.db`. This same suite runs automatically as the first
+step of the GitHub Actions build, so a broken database layer fails fast
+instead of wasting a 10+ minute APK build.
 
 ### Manual testing checklist (UI)
 
-Automated tests only cover `database.py`. After building, test the UI
-by hand:
+Automated tests only cover `database.py`. After installing a build, test
+the UI by hand:
 
 - Add, edit, and delete a transaction; confirm the balance and today's
   summary update correctly
@@ -181,3 +235,5 @@ will be recreated empty the next time the app starts.
 - SQLite (via Python's built-in `sqlite3`) — local data storage, no
   external database server
 - [pytest](https://pytest.org) — automated tests for the database layer
+- [GitHub Actions](https://github.com/features/actions) — cloud APK
+  builds, no local Android SDK required
