@@ -9,18 +9,29 @@ from database import (
 from views.ui_helpers import show_error
 
 
-def _get_or_create_file_picker(page: ft.Page) -> ft.FilePicker:
+def _get_or_create_file_picker(page: ft.Page):
     """
     Reuse a single FilePicker stashed on the page instead of appending a
     fresh one to page.overlay every time Settings is opened -- otherwise
     the overlay list grows by one FilePicker per open for the life of the
     session, which is a slow, silent memory leak.
+
+    Returns None if FilePicker can't be created at all (e.g. running via
+    `flet run --android` live preview, where the Flet mobile app has its
+    own bundled client that may not support every control -- only a real
+    `flet build apk` guarantees the client matches your pinned Flet
+    version). Callers must handle the None case instead of assuming
+    export always works.
     """
     existing = getattr(page, "_spendbook_file_picker", None)
     if existing is not None:
         return existing
-    picker = ft.FilePicker()
-    page.overlay.append(picker)
+    try:
+        picker = ft.FilePicker()
+        page.overlay.append(picker)
+        page.update()
+    except Exception:
+        return None
     page._spendbook_file_picker = picker
     return picker
 
@@ -113,9 +124,15 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     # -----------------------------------------------------------------
 
     export_status = ft.Text("", size=12, color=ft.Colors.GREEN_600)
-    file_picker = _get_or_create_file_picker(page)
 
     async def handle_export_transactions(e):
+        file_picker = _get_or_create_file_picker(page)
+        if file_picker is None:
+            export_status.value = "Export isn't available in this preview. Try a built APK."
+            export_status.color = ft.Colors.RED_400
+            page.update()
+            return
+
         try:
             content = build_transactions_csv()
         except DatabaseError as db_err:
@@ -133,6 +150,13 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
         page.update()
 
     async def handle_export_debts(e):
+        file_picker = _get_or_create_file_picker(page)
+        if file_picker is None:
+            export_status.value = "Export isn't available in this preview. Try a built APK."
+            export_status.color = ft.Colors.RED_400
+            page.update()
+            return
+
         try:
             content = build_debts_csv()
         except DatabaseError as db_err:
@@ -220,7 +244,12 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
                     ft.Text("Labels", weight=ft.FontWeight.BOLD, size=14),
                     label_list,
                     ft.Row([name_field, emoji_field], spacing=8),
-                    ft.TextButton("Add label", on_click=handle_add_label),
+                    ft.FilledButton(
+                        "Add label",
+                        icon=ft.Icons.ADD,
+                        on_click=handle_add_label,
+                        width=280,
+                    ),
                     label_error_text,
 
                     ft.Divider(),
