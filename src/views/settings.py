@@ -1,20 +1,28 @@
 import flet as ft
 
-from database import get_labels, add_label, delete_label
+from database import (
+    get_labels, add_label, delete_label,
+    get_setting, set_setting,
+    build_transactions_csv, build_debts_csv,
+)
 
 
 def open_settings_dialog(page: ft.Page, on_labels_changed):
     """
-    Opens a dialog for managing labels: add a new one, or delete an
-    existing one. `on_labels_changed` is called after every change so the
-    caller can refresh anything that shows a label list/dropdown.
+    Opens the Settings dialog: manage labels, export data to CSV, and
+    (optionally) turn on a PIN lock. `on_labels_changed` is called after
+    every label change so the caller can refresh anything showing labels.
     """
+
+    # -----------------------------------------------------------------
+    # Labels section
+    # -----------------------------------------------------------------
 
     name_field = ft.TextField(label="Label name", autofocus=True, expand=True)
     emoji_field = ft.TextField(label="Emoji (optional)", width=90)
-    error_text = ft.Text(value="", color=ft.Colors.RED_400, visible=False)
+    label_error_text = ft.Text(value="", color=ft.Colors.RED_400, visible=False)
 
-    label_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=160)
+    label_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=140)
 
     dialog_mounted = {"value": False}
 
@@ -48,43 +56,147 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         )
 
-    def handle_add(e):
+    def handle_add_label(e):
         name = (name_field.value or "").strip()
         if not name:
-            error_text.value = "Enter a label name."
-            error_text.visible = True
+            label_error_text.value = "Enter a label name."
+            label_error_text.visible = True
             page.update()
             return
 
         add_label(name=name, emoji=(emoji_field.value or "").strip())
         name_field.value = ""
         emoji_field.value = ""
-        error_text.visible = False
+        label_error_text.visible = False
         refresh_list()
         on_labels_changed()
         page.update()
+
+    # -----------------------------------------------------------------
+    # Export section
+    # -----------------------------------------------------------------
+
+    export_status = ft.Text("", size=12, color=ft.Colors.GREEN_600)
+
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker)
+    page.update()
+
+    # Which CSV to write is decided by which button was tapped; stashed
+    # here so the picker's completion (if we needed a callback) or the
+    # direct await below can use it.
+    async def handle_export_transactions(e):
+        content = build_transactions_csv()
+        result = await file_picker.save_file(
+            dialog_title="Save transactions CSV",
+            file_name="spendbook_transactions.csv",
+            src_bytes=content.encode("utf-8"),
+        )
+        export_status.value = "Transactions exported." if result else ""
+        page.update()
+
+    async def handle_export_debts(e):
+        content = build_debts_csv()
+        result = await file_picker.save_file(
+            dialog_title="Save debts/dues CSV",
+            file_name="spendbook_debts.csv",
+            src_bytes=content.encode("utf-8"),
+        )
+        export_status.value = "Debts/dues exported." if result else ""
+        page.update()
+
+    # -----------------------------------------------------------------
+    # PIN lock section (optional, off by default)
+    # -----------------------------------------------------------------
+
+    pin_enabled = get_setting("pin_enabled", "false") == "true"
+
+    pin_error_text = ft.Text("", size=12, color=ft.Colors.RED_400, visible=False)
+    new_pin_field = ft.TextField(
+        label="Set a 4-digit PIN",
+        password=True,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        visible=pin_enabled and not get_setting("pin_code"),
+        max_length=4,
+    )
+
+    def handle_pin_toggle(e):
+        enabling = pin_switch.value
+        if enabling:
+            if not get_setting("pin_code"):
+                new_pin_field.visible = True
+                page.update()
+                return
+            set_setting("pin_enabled", "true")
+        else:
+            set_setting("pin_enabled", "false")
+        page.update()
+
+    def handle_save_pin(e):
+        pin = (new_pin_field.value or "").strip()
+        if len(pin) != 4 or not pin.isdigit():
+            pin_error_text.value = "PIN must be exactly 4 digits."
+            pin_error_text.visible = True
+            page.update()
+            return
+        set_setting("pin_code", pin)
+        set_setting("pin_enabled", "true")
+        pin_error_text.visible = False
+        new_pin_field.visible = False
+        page.update()
+
+    pin_switch = ft.Switch(value=pin_enabled, on_change=handle_pin_toggle)
+
+    # -----------------------------------------------------------------
+    # Dialog assembly
+    # -----------------------------------------------------------------
 
     def close_dialog(e=None):
         page.pop_dialog()
 
     dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text("Manage Labels"),
+        title=ft.Text("Settings"),
         content=ft.Container(
             width=280,
             content=ft.Column(
                 [
+                    ft.Text("Labels", weight=ft.FontWeight.BOLD, size=14),
                     label_list,
-                    ft.Divider(),
                     ft.Row([name_field, emoji_field], spacing=8),
-                    error_text,
+                    ft.TextButton("Add label", on_click=handle_add_label),
+                    label_error_text,
+
+                    ft.Divider(),
+
+                    ft.Text("Export", weight=ft.FontWeight.BOLD, size=14),
+                    ft.Row(
+                        [
+                            ft.OutlinedButton("Transactions", on_click=handle_export_transactions, expand=True),
+                            ft.OutlinedButton("Debts/Dues", on_click=handle_export_debts, expand=True),
+                        ],
+                        spacing=8,
+                    ),
+                    export_status,
+
+                    ft.Divider(),
+
+                    ft.Text("App lock", weight=ft.FontWeight.BOLD, size=14),
+                    ft.Row(
+                        [ft.Text("Require PIN to open app", expand=True), pin_switch],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    new_pin_field,
+                    ft.TextButton("Save PIN", on_click=handle_save_pin),
+                    pin_error_text,
                 ],
                 tight=True,
-                spacing=12,
+                spacing=10,
+                scroll=ft.ScrollMode.AUTO,
+                height=460,
             ),
         ),
         actions=[
-            ft.TextButton("Add", on_click=handle_add),
             ft.FilledButton("Done", on_click=close_dialog),
         ],
         actions_alignment=ft.MainAxisAlignment.END,

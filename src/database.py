@@ -49,12 +49,40 @@ def initialize_database():
     );
     """)
 
+    # Simple key-value store for app-level settings (e.g. whether PIN lock
+    # is enabled, and the PIN itself). One row per key, so we don't need to
+    # migrate the schema every time we add a new toggle.
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS app_settings(
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+    """)
+
     conn.commit()
     conn.close()
 
 
 # ---------------------------------------------------------------------------
-# Labels
+# App settings (key-value)
+# ---------------------------------------------------------------------------
+
+def get_setting(key: str, default=None):
+    conn = get_connection()
+    row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row is not None else default
+
+
+def set_setting(key: str, value: str):
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
 # ---------------------------------------------------------------------------
 
 def get_labels():
@@ -127,6 +155,17 @@ def add_transaction(amount: float, type_: str, label_id, note: str, created_at: 
     conn.close()
 
 
+def update_transaction(transaction_id: int, amount: float, type_: str, label_id, note: str):
+    """Edit an existing transaction in place. created_at is left untouched."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE transactions SET amount = ?, type = ?, label_id = ?, note = ? WHERE id = ?",
+        (amount, type_, label_id, note, transaction_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def delete_transaction(transaction_id: int):
     conn = get_connection()
     conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
@@ -182,6 +221,17 @@ def add_debt(person_name: str, amount: float, type_: str, note: str, created_at:
     conn.close()
 
 
+def update_debt(debt_id: int, person_name: str, amount: float, type_: str, note: str):
+    """Edit an existing debt/due entry in place. created_at/settled untouched."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE debts SET person_name = ?, amount = ?, type = ?, note = ? WHERE id = ?",
+        (person_name, amount, type_, note, debt_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def settle_debt(debt_id: int):
     """Mark a debt/due as cleared without deleting its history."""
     conn = get_connection()
@@ -212,6 +262,60 @@ def get_debt_totals():
     """).fetchone()
     conn.close()
     return row["owed_to_us"], row["we_owe"]
+
+
+def is_debt_overdue(created_at: str, overdue_days: int = 7) -> bool:
+    """
+    A simple, dependency-free overdue check: parse the stored ISO date and
+    compare against today. Used by the UI to color/badge old unsettled
+    entries -- kept in Python (not SQL) since it's just for display, not
+    filtering a large table.
+    """
+    from datetime import datetime
+    try:
+        created = datetime.fromisoformat(created_at)
+    except ValueError:
+        return False
+    return (datetime.now() - created).days >= overdue_days
+
+
+# ---------------------------------------------------------------------------
+# Daily closing summary
+# ---------------------------------------------------------------------------
+
+def get_daily_closing(day_iso: str = None):
+    """
+    Totals for a single calendar day (defaults to today): income, expense,
+    net, and transaction count -- for a shop's end-of-day check.
+    `day_iso` should be 'YYYY-MM-DD'; if omitted, uses SQLite's local
+    'now' date.
+    """
+    conn = get_connection()
+    if day_iso is None:
+        row = conn.execute("""
+            SELECT
+                COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense,
+                COUNT(*) AS count
+            FROM transactions
+            WHERE date(created_at) = date('now')
+        """).fetchone()
+    else:
+        row = conn.execute("""
+            SELECT
+                COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense,
+                COUNT(*) AS count
+            FROM transactions
+            WHERE date(created_at) = ?
+        """, (day_iso,)).fetchone()
+    conn.close()
+    return {
+        "income": row["income"],
+        "expense": row["expense"],
+        "net": row["income"] - row["expense"],
+        "count": row["count"],
+    }
 
 # ---------------------------------------------------------------------------
 # Stats
@@ -287,3 +391,70 @@ def get_summary_totals(days: int = 30):
     """, (f'-{days} days',)).fetchone()
     conn.close()
     return row["income"], row["expense"]
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+def build_transactions_csv() -> str:
+    """Build the transactions CSV as a string, for direct use with
+    FilePicker.save_file(src_bytes=...) -- no temp file needed."""
+    import csv
+    import io
+    rows = get_transactions()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "date", "type", "amount", "label", "note"])
+    for r in rows:
+        writer.writerow([
+            r["id"], r["created_at"], r["type"], r["amount"],
+            r["label_name"] or "", r["note"] or "",
+        ])
+    return buf.getvalue()
+
+
+def build_debts_csv() -> str:
+    """Build the debts/dues CSV (including settled) as a string."""
+    import csv
+    import io
+    rows = get_debts(include_settled=True)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["id", "date", "person", "type", "amount", "note", "settled"])
+    for r in rows:
+        writer.writerow([
+            r["id"], r["created_at"], r["person_name"], r["type"],
+            r["amount"], r["note"] or "", "yes" if r["settled"] else "no",
+        ])
+    return buf.getvalue()
+
+
+def export_transactions_csv(path: str):
+    """Write all transactions to a CSV file at `path`. Returns the row count."""
+    import csv
+    rows = get_transactions()
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id", "date", "type", "amount", "label", "note"])
+        for r in rows:
+            writer.writerow([
+                r["id"], r["created_at"], r["type"], r["amount"],
+                r["label_name"] or "", r["note"] or "",
+            ])
+    return len(rows)
+
+
+def export_debts_csv(path: str):
+    """Write all debts/dues (including settled) to a CSV file. Returns row count."""
+    import csv
+    rows = get_debts(include_settled=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id", "date", "person", "type", "amount", "note", "settled"])
+        for r in rows:
+            writer.writerow([
+                r["id"], r["created_at"], r["person_name"], r["type"],
+                r["amount"], r["note"] or "", "yes" if r["settled"] else "no",
+            ])
+    return len(rows)

@@ -1,12 +1,16 @@
 import flet as ft
 
-from database import get_transactions, get_balance, delete_transaction
+from database import get_transactions, get_balance, delete_transaction, get_daily_closing
 
 
 class TransactionsView(ft.Column):
 
-    def __init__(self):
+    def __init__(self, page: ft.Page):
         super().__init__()
+
+        # Stored so row taps can open the edit dialog, which needs `page`
+        # to call page.show_dialog(). Set via main.py at construction time.
+        self.page_ref = page
 
         self.expand = True
 
@@ -15,6 +19,8 @@ class TransactionsView(ft.Column):
             size=42,
             weight=ft.FontWeight.BOLD,
         )
+
+        self.closing_text = ft.Text("", size=12, color=ft.Colors.GREY)
 
         # This holds the list of transaction rows. We keep a reference to it
         # so refresh() can just replace its .controls instead of rebuilding
@@ -30,6 +36,7 @@ class TransactionsView(ft.Column):
             ),
 
             self.balance_text,
+            self.closing_text,
 
             ft.Divider(),
 
@@ -45,6 +52,13 @@ class TransactionsView(ft.Column):
     def refresh(self):
         balance = get_balance()
         self.balance_text.value = f"₹{balance:,.2f}"
+
+        closing = get_daily_closing()
+        self.closing_text.value = (
+            f"Today: +₹{closing['income']:,.0f} / -₹{closing['expense']:,.0f}  "
+            f"(net {'+' if closing['net'] >= 0 else ''}₹{closing['net']:,.0f}, "
+            f"{closing['count']} txns)"
+        )
 
         rows = get_transactions()
 
@@ -72,8 +86,16 @@ class TransactionsView(ft.Column):
             delete_transaction(tid)
             self.refresh()
 
+        def handle_edit(e, tx=row):
+            # Local import avoids a circular import (add_transaction.py
+            # imports from database, not from this file, so this is just
+            # to keep the dependency direction easy to follow).
+            from views.add_transaction import open_add_transaction_dialog
+            open_add_transaction_dialog(self.page_ref, on_saved=self.refresh, existing=tx)
+
         return ft.Container(
             padding=ft.Padding(left=4, right=4, top=8, bottom=8),
+            on_click=handle_edit,
             content=ft.Row(
                 [
                     ft.Text(label, size=20),
@@ -99,4 +121,3 @@ class TransactionsView(ft.Column):
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
         )
-

@@ -1,27 +1,40 @@
 import flet as ft
 from datetime import datetime
 
-from database import add_debt
+from database import add_debt, update_debt
 
 
-def open_add_debt_dialog(page: ft.Page, on_saved):
+def open_add_debt_dialog(page: ft.Page, on_saved, existing=None):
     """
-    Dialog for recording a debt/due entry.
+    Dialog for recording or editing a debt/due entry.
 
     'debt'  = someone owes the shop money (udhaar / credit given to a customer)
     'due'   = the shop owes someone money (e.g. a supplier)
+
+    existing: if provided (a row from get_debts()), the dialog opens
+    pre-filled and updates that row instead of inserting a new one.
     """
 
-    name_field = ft.TextField(label="Person / party name", autofocus=True)
+    is_edit = existing is not None
+
+    name_field = ft.TextField(
+        label="Person / party name",
+        autofocus=True,
+        value=existing["person_name"] if is_edit else None,
+    )
     amount_field = ft.TextField(
         label="Amount",
         prefix="₹",
         keyboard_type=ft.KeyboardType.NUMBER,
+        value=str(existing["amount"]) if is_edit else None,
     )
-    note_field = ft.TextField(label="Note (optional)")
+    note_field = ft.TextField(
+        label="Note (optional)",
+        value=existing["note"] if is_edit else None,
+    )
 
     type_toggle = ft.SegmentedButton(
-        selected=["debt"],
+        selected=[existing["type"]] if is_edit else ["debt"],
         allow_multiple_selection=False,
         segments=[
             ft.Segment(value="debt", label=ft.Text("They owe us")),
@@ -56,20 +69,29 @@ def open_add_debt_dialog(page: ft.Page, on_saved):
 
         type_ = next(iter(type_toggle.selected))
 
-        add_debt(
-            person_name=name,
-            amount=amount,
-            type_=type_,
-            note=note_field.value or "",
-            created_at=datetime.now().isoformat(timespec="seconds"),
-        )
+        if is_edit:
+            update_debt(
+                debt_id=existing["id"],
+                person_name=name,
+                amount=amount,
+                type_=type_,
+                note=note_field.value or "",
+            )
+        else:
+            add_debt(
+                person_name=name,
+                amount=amount,
+                type_=type_,
+                note=note_field.value or "",
+                created_at=datetime.now().isoformat(timespec="seconds"),
+            )
 
         close_dialog()
         on_saved()
 
     dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text("Add Debt / Due"),
+        title=ft.Text("Edit Debt / Due" if is_edit else "Add Debt / Due"),
         content=ft.Container(
             width=280,
             content=ft.Column(
