@@ -14,11 +14,27 @@ class DebtsView(ft.Column):
         self.page_ref = page
 
         self.expand = True
+        # Same landscape-scroll fix as TransactionsView -- lets this tab
+        # scroll when content is taller than the available viewport.
+        self.scroll = ft.ScrollMode.ADAPTIVE
 
         self.owed_to_us_text = ft.Text("₹0", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600)
         self.we_owe_text = ft.Text("₹0", size=22, weight=ft.FontWeight.BOLD, color=ft.Colors.RED_400)
 
-        self.debt_list = ft.Column(spacing=4, expand=True)
+        self._search_term = ""
+
+        def handle_search_change(e):
+            self._search_term = e.control.value or ""
+            self.refresh()
+
+        self.search_field = ft.TextField(
+            hint_text="Search by name or note...",
+            prefix_icon=ft.Icons.SEARCH,
+            dense=True,
+            on_change=handle_search_change,
+        )
+
+        self.debt_list = ft.Column(spacing=4)
 
         self.controls = [
             ft.Text("Debts & Dues", size=24, weight=ft.FontWeight.BOLD),
@@ -38,6 +54,8 @@ class DebtsView(ft.Column):
                 ],
             ),
 
+            self.search_field,
+
             ft.Divider(),
 
             self.debt_list,
@@ -49,7 +67,7 @@ class DebtsView(ft.Column):
     def refresh(self):
         try:
             owed_to_us, we_owe = get_debt_totals()
-            rows = get_debts()
+            rows = get_debts(search=self._search_term or None)
         except DatabaseError as e:
             show_error(self.page_ref, f"Couldn't load debts: {e}")
             return
@@ -58,7 +76,8 @@ class DebtsView(ft.Column):
         self.we_owe_text.value = f"₹{we_owe:,.2f}"
 
         if not rows:
-            self.debt_list.controls = [ft.Text("No outstanding debts or dues.")]
+            message = "No matching entries." if self._search_term else "No outstanding debts or dues."
+            self.debt_list.controls = [ft.Text(message, color=ft.Colors.GREY)]
         else:
             self.debt_list.controls = [self._build_row(row) for row in rows]
 

@@ -1,6 +1,6 @@
 import flet as ft
 
-from database import initialize_database, get_setting, DatabaseError
+from database import initialize_database, DatabaseError
 from theme import apply_theme
 
 from views.transactions import TransactionsView
@@ -9,7 +9,7 @@ from views.stats import StatsView
 from views.add_transaction import open_add_transaction_dialog
 from views.add_debt import open_add_debt_dialog
 from views.settings import open_settings_dialog
-from views.pin_lock import build_pin_lock_view
+from views.setup_guide import maybe_show_setup_guide
 
 
 def main(page: ft.Page):
@@ -37,109 +37,93 @@ def main(page: ft.Page):
         )
         return
 
-    def build_app():
-        """Builds the real app UI. Called immediately if PIN lock is off,
-        or after a successful PIN entry if it's on."""
+    transactions_view = TransactionsView(page)
+    debts_view = DebtsView(page)
+    stats_view = StatsView(page)
 
-        transactions_view = TransactionsView(page)
-        debts_view = DebtsView(page)
-        stats_view = StatsView()
+    pages = [transactions_view, debts_view, stats_view]
 
-        pages = [transactions_view, debts_view, stats_view]
+    # expand=True + scroll=ADAPTIVE lets this container's content scroll
+    # whenever it's taller than the available viewport -- without this,
+    # rotating to landscape (much shorter viewport) clips content instead
+    # of letting you scroll to see the rest.
+    body = ft.Container(
+        expand=True,
+        content=pages[0],
+    )
 
-        body = ft.Container(
-            expand=True,
-            content=pages[0],
-        )
+    # The FAB's behavior depends on which tab is currently open: on the
+    # Transactions tab it adds a transaction, on the Dues tab it adds a
+    # debt/due entry. On the Stats tab there's nothing to "add", so the
+    # FAB is hidden there entirely.
+    current_tab = {"index": 0}
 
-        # The FAB's behavior depends on which tab is currently open: on the
-        # Transactions tab it adds a transaction, on the Dues tab it adds a
-        # debt/due entry. We track the current tab index for this.
-        current_tab = {"index": 0}
-
-        def change_tab(e):
-            current_tab["index"] = e.control.selected_index
-            body.content = pages[current_tab["index"]]
-            page.update()
-
-        page.navigation_bar = ft.NavigationBar(
-            destinations=[
-                ft.NavigationBarDestination(
-                    icon=ft.Icons.RECEIPT_LONG,
-                    label="Transactions",
-                ),
-                ft.NavigationBarDestination(
-                    icon=ft.Icons.HANDSHAKE_OUTLINED,
-                    label="Dues",
-                ),
-                ft.NavigationBarDestination(
-                    icon=ft.Icons.INSIGHTS,
-                    label="Stats",
-                ),
-            ],
-            on_change=change_tab,
-        )
-
-        # Top app bar with a settings icon on the right: manage labels,
-        # export data, and toggle the PIN lock.
-        def handle_settings_click(e):
-            open_settings_dialog(page, on_labels_changed=transactions_view.refresh)
-
-        page.appbar = ft.AppBar(
-            title=ft.Text("SpendBook"),
-            center_title=False,
-            actions=[
-                ft.IconButton(
-                    icon=ft.Icons.SETTINGS_OUTLINED,
-                    tooltip="Settings",
-                    on_click=handle_settings_click,
-                ),
-            ],
-        )
-
-        def handle_fab_click(e):
-            if current_tab["index"] == 1:
-                open_add_debt_dialog(page, on_saved=debts_view.refresh)
-            else:
-                open_add_transaction_dialog(page, on_saved=transactions_view.refresh)
-
-        page.floating_action_button = ft.FloatingActionButton(
-            icon=ft.Icons.ADD,
-            on_click=handle_fab_click,
-        )
-
-        page.controls.clear()
-        page.add(
-            ft.SafeArea(
-                ft.Container(
-                    content=body,
-                    expand=True,
-                )
-            )
-        )
+    def change_tab(e):
+        current_tab["index"] = e.control.selected_index
+        body.content = pages[current_tab["index"]]
+        page.floating_action_button = None if current_tab["index"] == 2 else fab
         page.update()
 
-    # If the PIN lock is enabled, show the unlock screen first and only
-    # build the real app once the correct PIN is entered. Off by default,
-    # so a fresh install skips straight to the app. If reading the setting
-    # fails, fail *open* (skip the lock) rather than stranding the user on
-    # a screen they can't get past.
-    try:
-        pin_enabled = get_setting("pin_enabled", "false") == "true"
-        pin_code = get_setting("pin_code") if pin_enabled else None
-    except DatabaseError:
-        pin_enabled, pin_code = False, None
+    page.navigation_bar = ft.NavigationBar(
+        destinations=[
+            ft.NavigationBarDestination(
+                icon=ft.Icons.RECEIPT_LONG,
+                label="Transactions",
+            ),
+            ft.NavigationBarDestination(
+                icon=ft.Icons.HANDSHAKE_OUTLINED,
+                label="Dues",
+            ),
+            ft.NavigationBarDestination(
+                icon=ft.Icons.INSIGHTS,
+                label="Stats",
+            ),
+        ],
+        on_change=change_tab,
+    )
 
-    if pin_enabled and pin_code:
-        def on_unlocked():
-            build_app()
+    # Top app bar with a settings icon on the right: manage labels and
+    # export data.
+    def handle_settings_click(e):
+        open_settings_dialog(page, on_labels_changed=transactions_view.refresh)
 
-        page.appbar = None
-        page.navigation_bar = None
-        page.floating_action_button = None
-        page.add(build_pin_lock_view(page, on_unlocked=on_unlocked))
-    else:
-        build_app()
+    page.appbar = ft.AppBar(
+        title=ft.Text("SpendBook"),
+        center_title=False,
+        actions=[
+            ft.IconButton(
+                icon=ft.Icons.SETTINGS_OUTLINED,
+                tooltip="Settings",
+                on_click=handle_settings_click,
+            ),
+        ],
+    )
+
+    def handle_fab_click(e):
+        if current_tab["index"] == 1:
+            open_add_debt_dialog(page, on_saved=debts_view.refresh)
+        else:
+            open_add_transaction_dialog(page, on_saved=transactions_view.refresh)
+
+    fab = ft.FloatingActionButton(
+        icon=ft.Icons.ADD,
+        on_click=handle_fab_click,
+    )
+    page.floating_action_button = fab
+
+    page.add(
+        ft.SafeArea(
+            ft.Container(
+                content=body,
+                expand=True,
+            )
+        )
+    )
+    page.update()
+
+    # Shows a one-time first-run guide (add your first label, etc.) if
+    # this looks like a fresh install. No-op on every run after that.
+    maybe_show_setup_guide(page, on_finished=transactions_view.refresh)
 
 
 ft.run(main)

@@ -2,45 +2,39 @@ import flet as ft
 
 from database import (
     get_labels, add_label, delete_label,
-    get_setting, set_setting,
     build_transactions_csv, build_debts_csv,
     DatabaseError,
 )
 from views.ui_helpers import show_error
 
 
-def _get_or_create_file_picker(page: ft.Page):
+def _get_or_create_share(page: ft.Page):
     """
-    Reuse a single FilePicker stashed on the page instead of appending a
-    fresh one to page.overlay every time Settings is opened -- otherwise
-    the overlay list grows by one FilePicker per open for the life of the
-    session, which is a slow, silent memory leak.
-
-    Returns None if FilePicker can't be created at all (e.g. running via
-    `flet run --android` live preview, where the Flet mobile app has its
-    own bundled client that may not support every control -- only a real
-    `flet build apk` guarantees the client matches your pinned Flet
-    version). Callers must handle the None case instead of assuming
-    export always works.
+    Reuse a single Share service stashed on the page instead of creating a
+    fresh one every time Settings is opened. Share is a "Service" control
+    (page.services, not page.overlay) -- it opens Android's native share
+    sheet, which is far more reliably supported across Flet versions than
+    FilePicker's save-file dialog was (that one threw "Unknown control:
+    FilePicker" on real device builds).
     """
-    existing = getattr(page, "_spendbook_file_picker", None)
+    existing = getattr(page, "_spendbook_share", None)
     if existing is not None:
         return existing
     try:
-        picker = ft.FilePicker()
-        page.overlay.append(picker)
+        share = ft.Share()
+        page.services.append(share)
         page.update()
     except Exception:
         return None
-    page._spendbook_file_picker = picker
-    return picker
+    page._spendbook_share = share
+    return share
 
 
 def open_settings_dialog(page: ft.Page, on_labels_changed):
     """
-    Opens the Settings dialog: manage labels, export data to CSV, and
-    (optionally) turn on a PIN lock. `on_labels_changed` is called after
-    every label change so the caller can refresh anything showing labels.
+    Opens the Settings dialog: manage labels and export data to CSV via
+    the device's share sheet. `on_labels_changed` is called after every
+    label change so the caller can refresh anything showing labels.
     """
 
     # -----------------------------------------------------------------
@@ -51,7 +45,10 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     emoji_field = ft.TextField(label="Emoji (optional)", width=90)
     label_error_text = ft.Text(value="", color=ft.Colors.RED_400, visible=False)
 
-    label_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=140)
+    # Shorter than before (was 140) so the Add Label button below it stays
+    # visible without scrolling even when there are many labels -- this
+    # list scrolls internally instead of pushing everything else down.
+    label_list = ft.Column(spacing=4, scroll=ft.ScrollMode.AUTO, height=90)
 
     dialog_mounted = {"value": False}
 
@@ -86,10 +83,10 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
 
         return ft.Row(
             [
-                ft.Text(f"{label['emoji'] or ''} {label['name']}", expand=True),
+                ft.Text(f"{label['emoji'] or ''} {label['name']}", expand=True, size=13),
                 ft.IconButton(
                     icon=ft.Icons.DELETE_OUTLINE,
-                    icon_size=18,
+                    icon_size=16,
                     on_click=handle_delete,
                 ),
             ],
@@ -120,112 +117,44 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
         page.update()
 
     # -----------------------------------------------------------------
-    # Export section
+    # Export section (share sheet, not a save-file dialog)
     # -----------------------------------------------------------------
 
     export_status = ft.Text("", size=12, color=ft.Colors.GREEN_600)
 
-    async def handle_export_transactions(e):
-        file_picker = _get_or_create_file_picker(page)
-        if file_picker is None:
-            export_status.value = "Export isn't available in this preview. Try a built APK."
+    async def _export(build_fn, filename: str, label: str):
+        share = _get_or_create_share(page)
+        if share is None:
+            export_status.value = "Export isn't available on this device/build."
             export_status.color = ft.Colors.RED_400
             page.update()
             return
 
         try:
-            content = build_transactions_csv()
+            content = build_fn()
         except DatabaseError as db_err:
             export_status.value = f"Export failed: {db_err}"
             export_status.color = ft.Colors.RED_400
             page.update()
             return
-        result = await file_picker.save_file(
-            dialog_title="Save transactions CSV",
-            file_name="spendbook_transactions.csv",
-            src_bytes=content.encode("utf-8"),
-        )
-        export_status.color = ft.Colors.GREEN_600
-        export_status.value = "Transactions exported." if result else ""
+
+        try:
+            await share.share_files(
+                files=[ft.ShareFile(data=content.encode("utf-8"), mime_type="text/csv", name=filename)],
+                subject=f"SpendBook {label} export",
+            )
+            export_status.color = ft.Colors.GREEN_600
+            export_status.value = f"{label} ready to share."
+        except Exception as share_err:
+            export_status.color = ft.Colors.RED_400
+            export_status.value = f"Share failed: {share_err}"
         page.update()
+
+    async def handle_export_transactions(e):
+        await _export(build_transactions_csv, "spendbook_transactions.csv", "Transactions")
 
     async def handle_export_debts(e):
-        file_picker = _get_or_create_file_picker(page)
-        if file_picker is None:
-            export_status.value = "Export isn't available in this preview. Try a built APK."
-            export_status.color = ft.Colors.RED_400
-            page.update()
-            return
-
-        try:
-            content = build_debts_csv()
-        except DatabaseError as db_err:
-            export_status.value = f"Export failed: {db_err}"
-            export_status.color = ft.Colors.RED_400
-            page.update()
-            return
-        result = await file_picker.save_file(
-            dialog_title="Save debts/dues CSV",
-            file_name="spendbook_debts.csv",
-            src_bytes=content.encode("utf-8"),
-        )
-        export_status.color = ft.Colors.GREEN_600
-        export_status.value = "Debts/dues exported." if result else ""
-        page.update()
-
-    # -----------------------------------------------------------------
-    # PIN lock section (optional, off by default)
-    # -----------------------------------------------------------------
-
-    pin_enabled = get_setting("pin_enabled", "false") == "true"
-
-    pin_error_text = ft.Text("", size=12, color=ft.Colors.RED_400, visible=False)
-    new_pin_field = ft.TextField(
-        label="Set a 4-digit PIN",
-        password=True,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        visible=pin_enabled and not get_setting("pin_code"),
-        max_length=4,
-    )
-
-    def handle_pin_toggle(e):
-        enabling = pin_switch.value
-        try:
-            if enabling:
-                if not get_setting("pin_code"):
-                    new_pin_field.visible = True
-                    page.update()
-                    return
-                set_setting("pin_enabled", "true")
-            else:
-                set_setting("pin_enabled", "false")
-        except DatabaseError as db_err:
-            pin_error_text.value = f"Couldn't update: {db_err}"
-            pin_error_text.visible = True
-            # Revert the switch visually since the change didn't persist.
-            pin_switch.value = not enabling
-        page.update()
-
-    def handle_save_pin(e):
-        pin = (new_pin_field.value or "").strip()
-        if len(pin) != 4 or not pin.isdigit():
-            pin_error_text.value = "PIN must be exactly 4 digits."
-            pin_error_text.visible = True
-            page.update()
-            return
-        try:
-            set_setting("pin_code", pin)
-            set_setting("pin_enabled", "true")
-        except DatabaseError as db_err:
-            pin_error_text.value = f"Couldn't save PIN: {db_err}"
-            pin_error_text.visible = True
-            page.update()
-            return
-        pin_error_text.visible = False
-        new_pin_field.visible = False
-        page.update()
-
-    pin_switch = ft.Switch(value=pin_enabled, on_change=handle_pin_toggle)
+        await _export(build_debts_csv, "spendbook_debts.csv", "Debts/Dues")
 
     # -----------------------------------------------------------------
     # Dialog assembly
@@ -255,6 +184,7 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
                     ft.Divider(),
 
                     ft.Text("Export", weight=ft.FontWeight.BOLD, size=14),
+                    ft.Text("Shares a CSV file via your device's share sheet.", size=11, color=ft.Colors.GREY),
                     ft.Row(
                         [
                             ft.OutlinedButton("Transactions", on_click=handle_export_transactions, expand=True),
@@ -263,22 +193,11 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
                         spacing=8,
                     ),
                     export_status,
-
-                    ft.Divider(),
-
-                    ft.Text("App lock", weight=ft.FontWeight.BOLD, size=14),
-                    ft.Row(
-                        [ft.Text("Require PIN to open app", expand=True), pin_switch],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                    new_pin_field,
-                    ft.TextButton("Save PIN", on_click=handle_save_pin),
-                    pin_error_text,
                 ],
                 tight=True,
                 spacing=10,
                 scroll=ft.ScrollMode.AUTO,
-                height=460,
+                height=380,
             ),
         ),
         actions=[

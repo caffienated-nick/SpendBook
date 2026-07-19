@@ -69,9 +69,10 @@ def initialize_database():
     );
     """)
 
-    # Simple key-value store for app-level settings (e.g. whether PIN lock
-    # is enabled, and the PIN itself). One row per key, so we don't need to
-    # migrate the schema every time we add a new toggle.
+    # Simple key-value store for app-level settings (currently used for
+    # the first-run setup guide's "already seen" flag; a general-purpose
+    # place for future toggles). One row per key, so we don't need to
+    # migrate the schema every time we add a new setting.
     conn.execute("""
     CREATE TABLE IF NOT EXISTS app_settings(
         key TEXT PRIMARY KEY,
@@ -142,20 +143,37 @@ def delete_label(label_id: int):
 # Transactions
 # ---------------------------------------------------------------------------
 
-def get_transactions():
+def get_transactions(search: str = None):
     """
     Return all transactions, newest first, each row also carrying the
     joined label name/emoji so the UI doesn't need a second query per row.
+
+    If `search` is given, only returns transactions whose note or label
+    name contains it (case-insensitive). SQLite's LIKE is
+    case-insensitive for ASCII by default, which covers the common case
+    here without extra setup.
     """
     conn = get_connection()
-    rows = conn.execute("""
-        SELECT
-            t.id, t.amount, t.type, t.note, t.created_at,
-            l.name AS label_name, l.emoji AS label_emoji
-        FROM transactions t
-        LEFT JOIN labels l ON l.id = t.label_id
-        ORDER BY t.created_at DESC, t.id DESC
-    """).fetchall()
+    if search:
+        pattern = f"%{search}%"
+        rows = conn.execute("""
+            SELECT
+                t.id, t.amount, t.type, t.note, t.created_at,
+                l.name AS label_name, l.emoji AS label_emoji
+            FROM transactions t
+            LEFT JOIN labels l ON l.id = t.label_id
+            WHERE t.note LIKE ? OR l.name LIKE ?
+            ORDER BY t.created_at DESC, t.id DESC
+        """, (pattern, pattern)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT
+                t.id, t.amount, t.type, t.note, t.created_at,
+                l.name AS label_name, l.emoji AS label_emoji
+            FROM transactions t
+            LEFT JOIN labels l ON l.id = t.label_id
+            ORDER BY t.created_at DESC, t.id DESC
+        """).fetchall()
     conn.close()
     return rows
 
@@ -214,17 +232,29 @@ def get_balance():
 # Debts / Dues
 # ---------------------------------------------------------------------------
 
-def get_debts(include_settled: bool = False):
+def get_debts(include_settled: bool = False, search: str = None):
     """
     Return debt/due entries, unsettled first (then newest first).
     By default hides settled ones so the list only shows what's outstanding.
+    If `search` is given, only returns entries whose person name or note
+    contains it (case-insensitive).
     """
     conn = get_connection()
-    query = "SELECT * FROM debts"
+    conditions = []
+    params = []
     if not include_settled:
-        query += " WHERE settled = 0"
+        conditions.append("settled = 0")
+    if search:
+        conditions.append("(person_name LIKE ? OR note LIKE ?)")
+        pattern = f"%{search}%"
+        params.extend([pattern, pattern])
+
+    query = "SELECT * FROM debts"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY settled ASC, created_at DESC, id DESC"
-    rows = conn.execute(query).fetchall()
+
+    rows = conn.execute(query, params).fetchall()
     conn.close()
     return rows
 

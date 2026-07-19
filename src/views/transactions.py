@@ -14,6 +14,11 @@ class TransactionsView(ft.Column):
         self.page_ref = page
 
         self.expand = True
+        # Lets the whole tab scroll when content is taller than the
+        # viewport -- e.g. rotating to landscape shrinks available
+        # height a lot; without this, content below the fold was
+        # simply unreachable.
+        self.scroll = ft.ScrollMode.ADAPTIVE
 
         self.balance_text = ft.Text(
             "₹0",
@@ -23,10 +28,23 @@ class TransactionsView(ft.Column):
 
         self.closing_text = ft.Text("", size=12, color=ft.Colors.GREY)
 
+        self._search_term = ""
+
+        def handle_search_change(e):
+            self._search_term = e.control.value or ""
+            self.refresh()
+
+        self.search_field = ft.TextField(
+            hint_text="Search notes or labels...",
+            prefix_icon=ft.Icons.SEARCH,
+            dense=True,
+            on_change=handle_search_change,
+        )
+
         # This holds the list of transaction rows. We keep a reference to it
         # so refresh() can just replace its .controls instead of rebuilding
         # the whole view.
-        self.transaction_list = ft.Column(spacing=4, expand=True)
+        self.transaction_list = ft.Column(spacing=4)
 
         self.controls = [
 
@@ -38,6 +56,8 @@ class TransactionsView(ft.Column):
 
             self.balance_text,
             self.closing_text,
+
+            self.search_field,
 
             ft.Divider(),
 
@@ -57,7 +77,7 @@ class TransactionsView(ft.Column):
         try:
             balance = get_balance()
             closing = get_daily_closing()
-            rows = get_transactions()
+            rows = get_transactions(search=self._search_term or None)
         except DatabaseError as e:
             show_error(self.page_ref, f"Couldn't load transactions: {e}")
             return
@@ -70,7 +90,8 @@ class TransactionsView(ft.Column):
         )
 
         if not rows:
-            self.transaction_list.controls = [ft.Text("No transactions yet.")]
+            message = "No matching transactions." if self._search_term else "No transactions yet."
+            self.transaction_list.controls = [ft.Text(message, color=ft.Colors.GREY)]
         else:
             self.transaction_list.controls = [
                 self._build_row(row) for row in rows

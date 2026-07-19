@@ -6,13 +6,21 @@ from database import get_summary_totals, get_spending_by_label, get_daily_totals
 class StatsView(ft.Column):
     """
     Stats screen: a 30-day income/expense summary, a spend-by-label
-    breakdown (as simple proportional bars -- no chart library needed),
-    and a 14-day daily trend list.
+    breakdown, and a 14-day daily trend.
+
+    Bar widths are computed from the real screen width (page.width) at
+    render time rather than a hardcoded pixel value -- the previous
+    version used a fixed 260px bar width, which left a visible empty gap
+    on narrower screens or larger system font scales (anything that
+    changes the actual available width without changing the hardcoded
+    number). This also avoids nesting flex-based `expand` inside a Stack,
+    a layout combination not otherwise used/proven elsewhere in this app.
     """
 
-    def __init__(self):
+    def __init__(self, page: ft.Page):
         super().__init__()
 
+        self.page_ref = page
         self.expand = True
         self.scroll = ft.ScrollMode.AUTO
 
@@ -21,7 +29,7 @@ class StatsView(ft.Column):
         self.net_text = ft.Text("₹0", size=20, weight=ft.FontWeight.BOLD)
 
         self.label_breakdown = ft.Column(spacing=10)
-        self.daily_trend = ft.Column(spacing=6)
+        self.daily_trend = ft.Column(spacing=10)
 
         self.controls = [
             ft.Text("Statistics", size=24, weight=ft.FontWeight.BOLD),
@@ -51,12 +59,36 @@ class StatsView(ft.Column):
 
             ft.Divider(),
 
-            ft.Text("Last 14 days", size=16, weight=ft.FontWeight.BOLD),
+            ft.Row(
+                [
+                    ft.Text("Last 14 days", size=16, weight=ft.FontWeight.BOLD, expand=True),
+                    ft.Row(
+                        [
+                            ft.Container(width=10, height=10, border_radius=2, bgcolor=ft.Colors.RED_300),
+                            ft.Text("expense", size=11, color=ft.Colors.GREY),
+                            ft.Container(width=10, height=10, border_radius=2, bgcolor=ft.Colors.GREEN_600),
+                            ft.Text("income", size=11, color=ft.Colors.GREY),
+                        ],
+                        spacing=4,
+                    ),
+                ],
+            ),
             self.daily_trend,
         ]
 
     def did_mount(self):
         self.refresh()
+
+    def _bar_width(self) -> float:
+        """
+        The real available width for a bar: page width minus the app's
+        16px horizontal padding (set in theme.py) on each side, minus
+        space for the day label / left margin. Falls back to a
+        reasonable default if page.width isn't available yet (can be
+        None very early in the render lifecycle).
+        """
+        total = self.page_ref.width or 390
+        return max(total - 32 - 56, 80)  # 32 = page padding, 56 = label column + spacing
 
     def refresh(self):
         try:
@@ -89,6 +121,10 @@ class StatsView(ft.Column):
             self.label_breakdown.controls = [ft.Text("No expenses yet in the last 30 days.", color=ft.Colors.GREY)]
             return
 
+        # Full bar width here (label breakdown bars aren't preceded by a
+        # day-label column like the daily trend is).
+        full_width = max((self.page_ref.width or 390) - 32, 100)
+
         max_total = max(r["total"] for r in rows) or 1
         controls = []
         for r in rows:
@@ -105,12 +141,10 @@ class StatsView(ft.Column):
                         ),
                         ft.Stack(
                             [
-                                ft.Container(height=8, border_radius=4, bgcolor=ft.Colors.GREY_800),
+                                ft.Container(height=8, border_radius=4, bgcolor=ft.Colors.GREY_800, width=full_width),
                                 ft.Container(
-                                    height=8,
-                                    border_radius=4,
-                                    bgcolor=ft.Colors.ORANGE_400,
-                                    width=fraction * 260,
+                                    height=8, border_radius=4, bgcolor=ft.Colors.ORANGE_400,
+                                    width=max(fraction * full_width, 8),
                                 ),
                             ],
                         ),
@@ -130,22 +164,39 @@ class StatsView(ft.Column):
         max_val = max((d["income"] for d in days), default=0)
         max_val = max(max_val, max((d["expense"] for d in days), default=0), 1)
 
+        bar_width = self._bar_width()
+        bar_height = 18
+
         controls = []
         for d in days:
             income_frac = d["income"] / max_val
             expense_frac = d["expense"] / max_val
             label = d["day"][5:]  # MM-DD, short enough for a phone row
+
+            # Overlapping bar: expense drawn as a full-height background
+            # bar, income drawn as a shorter bar on top of it (both
+            # anchored to the same scale) -- so a glance shows whether
+            # that day's income covered its expense, instead of two
+            # separate thin bars that were hard to compare side by side.
             controls.append(
                 ft.Row(
                     [
                         ft.Text(label, size=11, color=ft.Colors.GREY, width=44),
-                        ft.Container(
-                            height=6, border_radius=3, bgcolor=ft.Colors.GREEN_600,
-                            width=max(income_frac * 100, 2),
-                        ),
-                        ft.Container(
-                            height=6, border_radius=3, bgcolor=ft.Colors.RED_400,
-                            width=max(expense_frac * 100, 2),
+                        ft.Stack(
+                            [
+                                ft.Container(height=bar_height, border_radius=4, bgcolor=ft.Colors.GREY_900, width=bar_width),
+                                ft.Container(
+                                    height=bar_height, border_radius=4, bgcolor=ft.Colors.RED_300,
+                                    width=max(expense_frac * bar_width, 4),
+                                ),
+                                ft.Container(
+                                    top=bar_height * 0.22,
+                                    content=ft.Container(
+                                        height=bar_height * 0.56, border_radius=3, bgcolor=ft.Colors.GREEN_600,
+                                        width=max(income_frac * bar_width, 4),
+                                    ),
+                                ),
+                            ],
                         ),
                     ],
                     spacing=6,
