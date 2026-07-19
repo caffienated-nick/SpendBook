@@ -65,27 +65,34 @@ jobs:
         # CI log.
         #
         # Size reduction (previous build was ~200MB):
-        # --arch arm64 builds for arm64-v8a only, instead of a "fat" APK
-        # bundling arm64-v8a + armeabi-v7a + x86_64 native binaries.
-        # arm64-v8a covers essentially all Android phones sold in the
-        # last several years. (--split-per-abi was considered instead,
-        # but it produces multiple APK files and would require picking
-        # the right one per device -- --arch arm64 gets a similar size
-        # win as a single file.)
+        # --split-per-abi builds a separate, smaller APK per CPU
+        # architecture instead of one "fat" APK bundling all three
+        # (arm64-v8a, armeabi-v7a, x86_64). This is a real Flutter CLI
+        # flag passed straight through by flet-cli, so it's much more
+        # reliable than --arch, which flet-cli tries to translate into
+        # an Android Gradle abiFilters config internally -- that
+        # translation broke in this Flet version and produced an empty
+        # ABI list, failing the build with a Gradle CXX1201 error.
+        # The tradeoff: this produces 3 APK files instead of 1, so you
+        # need to pick the right one for your phone (see the next step).
         # --compile-app/--compile-packages precompile .py to .pyc.
         # --cleanup-app/--cleanup-packages strip files not needed at
         # runtime (docs, tests, caches shipped inside dependencies).
         run: >
           uv run flet build apk --yes --no-rich-output
-          --arch arm64
+          --split-per-abi
           --compile-app --compile-packages
           --cleanup-app --cleanup-packages
 
-      - name: Report APK size
+      - name: Report APK sizes
         # Printed directly in the Actions log so size regressions are
         # visible on every build without needing to download the
-        # artifact first.
-        run: du -h build/apk/*.apk
+        # artifact first. With --split-per-abi there are multiple files;
+        # app-arm64-v8a-release.apk is the one that fits virtually all
+        # modern Android phones.
+        run: |
+          echo "Built APKs (pick app-arm64-v8a-release.apk for most phones):"
+          du -h build/apk/*.apk
 
       - name: Upload APK as a build artifact
         uses: actions/upload-artifact@v4
