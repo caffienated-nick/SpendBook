@@ -104,6 +104,41 @@ def test_transactions_are_sorted_newest_first(db):
     assert transactions[1]["note"] == "older"
 
 
+def test_transaction_search_matches_note(db):
+    label_id = db.add_label("Food", "🍔")
+    db.add_transaction(100.0, "expense", label_id, "lunch at dhaba", "2026-07-01T10:00:00")
+    db.add_transaction(200.0, "expense", label_id, "groceries", "2026-07-01T11:00:00")
+
+    results = db.get_transactions(search="lunch")
+    assert len(results) == 1
+    assert results[0]["note"] == "lunch at dhaba"
+
+
+def test_transaction_search_matches_label_name(db):
+    label_id = db.add_label("Food", "🍔")
+    db.add_transaction(100.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
+    db.add_transaction(200.0, "expense", label_id, "groceries", "2026-07-01T11:00:00")
+
+    results = db.get_transactions(search="food")
+    assert len(results) == 2
+
+
+def test_transaction_search_is_case_insensitive(db):
+    label_id = db.add_label("Food", "🍔")
+    db.add_transaction(100.0, "expense", label_id, "LUNCH", "2026-07-01T10:00:00")
+
+    results = db.get_transactions(search="lunch")
+    assert len(results) == 1
+
+
+def test_transaction_search_with_no_matches_returns_empty(db):
+    label_id = db.add_label("Food", "🍔")
+    db.add_transaction(100.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
+
+    results = db.get_transactions(search="nonexistent")
+    assert results == []
+
+
 # ---------------------------------------------------------------------------
 # Debts / Dues
 # ---------------------------------------------------------------------------
@@ -145,6 +180,34 @@ def test_is_debt_overdue_respects_threshold(db):
 
     assert db.is_debt_overdue(ten_days_ago, overdue_days=7) is True
     assert db.is_debt_overdue(two_days_ago, overdue_days=7) is False
+
+
+def test_debt_search_matches_person_name(db):
+    db.add_debt("Ramesh Kumar", 500.0, "debt", "udhaar", "2026-07-01T10:00:00")
+    db.add_debt("Suresh", 200.0, "debt", "udhaar", "2026-07-01T10:00:00")
+
+    results = db.get_debts(search="ramesh")
+    assert len(results) == 1
+    assert results[0]["person_name"] == "Ramesh Kumar"
+
+
+def test_debt_search_matches_note(db):
+    db.add_debt("Ramesh", 500.0, "debt", "rice purchase", "2026-07-01T10:00:00")
+    db.add_debt("Suresh", 200.0, "debt", "sugar purchase", "2026-07-01T10:00:00")
+
+    results = db.get_debts(search="rice")
+    assert len(results) == 1
+    assert results[0]["person_name"] == "Ramesh"
+
+
+def test_debt_search_combines_with_settled_filter(db):
+    db.add_debt("Ramesh", 500.0, "debt", "udhaar", "2026-07-01T10:00:00")
+    debt_id = db.get_debts()[0]["id"]
+    db.settle_debt(debt_id)
+
+    # Settled entries stay hidden by default even when they match a search.
+    assert db.get_debts(search="ramesh") == []
+    assert len(db.get_debts(search="ramesh", include_settled=True)) == 1
 
 
 # ---------------------------------------------------------------------------
