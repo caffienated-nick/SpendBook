@@ -107,8 +107,8 @@ class TransactionsView(ft.Column):
         sign = "-" if is_expense else "+"
         color = ft.Colors.RED_400 if is_expense else ft.Colors.GREEN_600
 
-        label = row["label_emoji"] or "❓"
         label_name = row["label_name"] or "Uncategorized"
+        label_color = row["label_color"] or ft.Colors.GREY_500
 
         def handle_delete(e, tid=row["id"], desc=f"{row['note'] or label_name} (₹{row['amount']:,.2f})"):
             def do_delete():
@@ -132,7 +132,7 @@ class TransactionsView(ft.Column):
             on_click=handle_edit,
             content=ft.Row(
                 [
-                    ft.Text(label, size=20),
+                    ft.Container(width=14, height=14, border_radius=7, bgcolor=label_color),
                     ft.Column(
                         [
                             ft.Text(label_name, weight=ft.FontWeight.BOLD),

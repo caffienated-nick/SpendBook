@@ -114,8 +114,13 @@ def get_labels():
     return rows
 
 
-def add_label(name: str, emoji: str = "", color: str = ""):
-    """Insert a new label and return its new id."""
+def add_label(name: str, color: str = "", emoji: str = ""):
+    """
+    Insert a new label and return its new id. `emoji` is a legacy column
+    kept for backward compatibility with existing databases -- the UI no
+    longer sets it (labels are distinguished by `color` instead). Always
+    call with keyword arguments to avoid ambiguity between the two.
+    """
     conn = get_connection()
     cursor = conn.execute(
         "INSERT INTO labels (name, emoji, color) VALUES (?, ?, ?)",
@@ -146,7 +151,7 @@ def delete_label(label_id: int):
 def get_transactions(search: str = None):
     """
     Return all transactions, newest first, each row also carrying the
-    joined label name/emoji so the UI doesn't need a second query per row.
+    joined label name/color so the UI doesn't need a second query per row.
 
     If `search` is given, only returns transactions whose note or label
     name contains it (case-insensitive). SQLite's LIKE is
@@ -159,7 +164,7 @@ def get_transactions(search: str = None):
         rows = conn.execute("""
             SELECT
                 t.id, t.amount, t.type, t.note, t.created_at,
-                l.name AS label_name, l.emoji AS label_emoji
+                l.name AS label_name, l.color AS label_color
             FROM transactions t
             LEFT JOIN labels l ON l.id = t.label_id
             WHERE t.note LIKE ? OR l.name LIKE ?
@@ -169,7 +174,7 @@ def get_transactions(search: str = None):
         rows = conn.execute("""
             SELECT
                 t.id, t.amount, t.type, t.note, t.created_at,
-                l.name AS label_name, l.emoji AS label_emoji
+                l.name AS label_name, l.color AS label_color
             FROM transactions t
             LEFT JOIN labels l ON l.id = t.label_id
             ORDER BY t.created_at DESC, t.id DESC
@@ -382,7 +387,7 @@ def get_spending_by_label(days: int = 30):
     rows = conn.execute("""
         SELECT
             COALESCE(l.name, 'Uncategorized') AS label_name,
-            COALESCE(l.emoji, '') AS label_emoji,
+            COALESCE(l.color, '') AS label_color,
             SUM(t.amount) AS total
         FROM transactions t
         LEFT JOIN labels l ON l.id = t.label_id
@@ -478,3 +483,74 @@ def build_debts_csv() -> str:
             r["amount"], r["note"] or "", "yes" if r["settled"] else "no",
         ])
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Backup / Restore
+#
+# Rather than round-tripping through CSV (which loses labels' colors,
+# settled/unsettled state nuance, and IDs), backup/restore works with the
+# actual SQLite file -- a true 1:1 copy. This also sidesteps needing a
+# file-picker control: FilePicker is known to break on real Android
+# builds in this Flet version ("Unknown control: FilePicker"), so backup
+# writes to, and restore reads from, a fixed filename in the device's
+# Downloads folder instead of an interactive file-open dialog.
+# ---------------------------------------------------------------------------
+
+BACKUP_FILENAME = "SpendBook_backup.db"
+
+
+def create_backup_file(destination_path: str):
+    """
+    Copies the live database file to `destination_path` (a full directory
+    + filename). Uses SQLite's own backup API rather than a raw file copy
+    so it's safe even if something else has the database open at the same
+    moment -- a plain file copy could grab a half-written page mid-write.
+    """
+    import shutil
+
+    conn = get_connection()
+    try:
+        dest_conn = sqlite3.connect(destination_path)
+        try:
+            conn.backup(dest_conn)
+        finally:
+            dest_conn.close()
+    except sqlite3.Error as e:
+        raise DatabaseError(f"Could not create backup: {e}") from e
+    finally:
+        conn.close()
+
+
+def restore_from_backup_file(source_path: str):
+    """
+    Replaces the live database with the one at `source_path`. Validates
+    the source file actually looks like a SpendBook database (has the
+    expected tables) before touching anything, so a wrong/corrupt file
+    can't silently wipe out real data.
+    """
+    import shutil
+
+    if not Path(source_path).exists():
+        raise DatabaseError(f"Backup file not found at {source_path}")
+
+    try:
+        check_conn = sqlite3.connect(source_path)
+        try:
+            tables = {
+                row[0] for row in
+                check_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            }
+        finally:
+            check_conn.close()
+    except sqlite3.Error as e:
+        raise DatabaseError(f"That file doesn't look like a valid backup: {e}") from e
+
+    required = {"labels", "transactions", "debts"}
+    if not required.issubset(tables):
+        raise DatabaseError("That file doesn't look like a SpendBook backup.")
+
+    try:
+        shutil.copyfile(source_path, DB_PATH)
+    except OSError as e:
+        raise DatabaseError(f"Could not restore backup: {e}") from e

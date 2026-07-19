@@ -8,6 +8,8 @@ Run with:  uv run pytest              (from the project root)
 """
 from datetime import datetime, timedelta
 
+import pytest
+
 
 # ---------------------------------------------------------------------------
 # Labels
@@ -20,17 +22,27 @@ def test_fresh_database_has_no_labels(db):
 
 
 def test_add_label_returns_new_id(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="#FFA726")
     assert isinstance(label_id, int)
 
     labels = db.get_labels()
     assert len(labels) == 1
     assert labels[0]["name"] == "Food"
-    assert labels[0]["emoji"] == "🍔"
+    assert labels[0]["color"] == "#FFA726"
+
+
+def test_add_label_color_persists_with_keyword_args(db):
+    # Regression test: add_label's parameters are (name, color, emoji).
+    # Always call with keyword arguments -- this guards against a color
+    # value accidentally landing in the wrong column if the parameter
+    # order ever changes again.
+    db.add_label(name="Rent", color="blue400")
+    labels = db.get_labels()
+    assert labels[0]["color"] == "blue400"
 
 
 def test_delete_label_removes_it(db):
-    label_id = db.add_label("Temp", "❓")
+    label_id = db.add_label(name="Temp", color="grey500")
     db.delete_label(label_id)
     assert db.get_labels() == []
 
@@ -39,7 +51,7 @@ def test_deleting_a_label_does_not_delete_its_transactions(db):
     # This documents an intentional design choice: deleting a label
     # shouldn't erase transaction history, it should just show as
     # "Uncategorized" going forward (see get_transactions()'s LEFT JOIN).
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100, "expense", label_id, "lunch", "2026-07-01T10:00:00")
     db.delete_label(label_id)
 
@@ -53,7 +65,7 @@ def test_deleting_a_label_does_not_delete_its_transactions(db):
 # ---------------------------------------------------------------------------
 
 def test_add_transaction_appears_in_list(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(150.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
 
     transactions = db.get_transactions()
@@ -64,7 +76,7 @@ def test_add_transaction_appears_in_list(db):
 
 
 def test_balance_is_income_minus_expense(db):
-    label_id = db.add_label("Sales", "💰")
+    label_id = db.add_label(name="Sales", color="grey500")
     db.add_transaction(1000.0, "income", label_id, "sales", "2026-07-01T10:00:00")
     db.add_transaction(300.0, "expense", label_id, "supplies", "2026-07-01T11:00:00")
 
@@ -72,7 +84,7 @@ def test_balance_is_income_minus_expense(db):
 
 
 def test_update_transaction_changes_amount_and_note(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
     transaction_id = db.get_transactions()[0]["id"]
 
@@ -85,7 +97,7 @@ def test_update_transaction_changes_amount_and_note(db):
 
 
 def test_delete_transaction_removes_it(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
     transaction_id = db.get_transactions()[0]["id"]
 
@@ -95,7 +107,7 @@ def test_delete_transaction_removes_it(db):
 
 
 def test_transactions_are_sorted_newest_first(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100.0, "expense", label_id, "older", "2026-07-01T10:00:00")
     db.add_transaction(200.0, "expense", label_id, "newer", "2026-07-02T10:00:00")
 
@@ -105,7 +117,7 @@ def test_transactions_are_sorted_newest_first(db):
 
 
 def test_transaction_search_matches_note(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100.0, "expense", label_id, "lunch at dhaba", "2026-07-01T10:00:00")
     db.add_transaction(200.0, "expense", label_id, "groceries", "2026-07-01T11:00:00")
 
@@ -115,7 +127,7 @@ def test_transaction_search_matches_note(db):
 
 
 def test_transaction_search_matches_label_name(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
     db.add_transaction(200.0, "expense", label_id, "groceries", "2026-07-01T11:00:00")
 
@@ -124,7 +136,7 @@ def test_transaction_search_matches_label_name(db):
 
 
 def test_transaction_search_is_case_insensitive(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100.0, "expense", label_id, "LUNCH", "2026-07-01T10:00:00")
 
     results = db.get_transactions(search="lunch")
@@ -132,7 +144,7 @@ def test_transaction_search_is_case_insensitive(db):
 
 
 def test_transaction_search_with_no_matches_returns_empty(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(100.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
 
     results = db.get_transactions(search="nonexistent")
@@ -215,7 +227,7 @@ def test_debt_search_combines_with_settled_filter(db):
 # ---------------------------------------------------------------------------
 
 def test_summary_totals_only_counts_within_window(db):
-    label_id = db.add_label("Sales", "💰")
+    label_id = db.add_label(name="Sales", color="grey500")
     recent = datetime.now().isoformat(timespec="seconds")
     old = (datetime.now() - timedelta(days=60)).isoformat(timespec="seconds")
 
@@ -227,8 +239,8 @@ def test_summary_totals_only_counts_within_window(db):
 
 
 def test_spending_by_label_groups_correctly(db):
-    food = db.add_label("Food", "🍔")
-    rent = db.add_label("Rent", "🏠")
+    food = db.add_label(name="Food", color="grey500")
+    rent = db.add_label(name="Rent", color="grey500")
     now = datetime.now().isoformat(timespec="seconds")
 
     db.add_transaction(200.0, "expense", food, "groceries", now)
@@ -272,7 +284,7 @@ def test_set_setting_overwrites_existing_value(db):
 # ---------------------------------------------------------------------------
 
 def test_transactions_csv_contains_expected_row(db):
-    label_id = db.add_label("Food", "🍔")
+    label_id = db.add_label(name="Food", color="grey500")
     db.add_transaction(150.0, "expense", label_id, "lunch", "2026-07-01T10:00:00")
 
     csv_content = db.build_transactions_csv()
@@ -289,3 +301,75 @@ def test_debts_csv_includes_settled_entries(db):
     csv_content = db.build_debts_csv()
     assert "Ramesh" in csv_content
     assert "yes" in csv_content  # the settled=yes column
+
+
+# ---------------------------------------------------------------------------
+# Backup / Restore
+# ---------------------------------------------------------------------------
+
+def test_create_backup_file_produces_valid_sqlite_file(db, tmp_path):
+    db.add_label(name="Food", color="orange400")
+    backup_path = tmp_path / "backup.db"
+
+    db.create_backup_file(str(backup_path))
+
+    assert backup_path.exists()
+    # Verify independently, not through our own DB_PATH, that the backup
+    # actually contains the data.
+    import sqlite3
+    conn = sqlite3.connect(str(backup_path))
+    conn.row_factory = sqlite3.Row
+    labels = conn.execute("SELECT * FROM labels").fetchall()
+    conn.close()
+    assert len(labels) == 1
+    assert labels[0]["color"] == "orange400"
+
+
+def test_restore_from_backup_file_replaces_live_data(db, tmp_path):
+    db.add_label(name="Food", color="orange400")
+    db.add_transaction(500.0, "expense", db.get_labels()[0]["id"], "lunch", "2026-07-01T10:00:00")
+
+    backup_path = tmp_path / "backup.db"
+    db.create_backup_file(str(backup_path))
+
+    # Wipe live data
+    db.delete_transaction(db.get_transactions()[0]["id"])
+    db.delete_label(db.get_labels()[0]["id"])
+    assert db.get_labels() == []
+    assert db.get_transactions() == []
+
+    db.restore_from_backup_file(str(backup_path))
+
+    restored_labels = db.get_labels()
+    restored_txns = db.get_transactions()
+    assert len(restored_labels) == 1
+    assert restored_labels[0]["color"] == "orange400"
+    assert len(restored_txns) == 1
+
+
+def test_restore_rejects_missing_file(db, tmp_path):
+    missing_path = tmp_path / "does_not_exist.db"
+    with pytest.raises(db.DatabaseError):
+        db.restore_from_backup_file(str(missing_path))
+
+
+def test_restore_rejects_file_that_is_not_a_database(db, tmp_path):
+    bad_path = tmp_path / "not_a_db.db"
+    bad_path.write_text("this is not a sqlite database")
+
+    with pytest.raises(db.DatabaseError):
+        db.restore_from_backup_file(str(bad_path))
+
+
+def test_restore_rejects_sqlite_file_missing_required_tables(db, tmp_path):
+    # A real SQLite file, but not a SpendBook backup -- should still be
+    # rejected rather than silently "restoring" into a broken state.
+    import sqlite3
+    wrong_path = tmp_path / "wrong_schema.db"
+    conn = sqlite3.connect(str(wrong_path))
+    conn.execute("CREATE TABLE something_else (id INTEGER)")
+    conn.commit()
+    conn.close()
+
+    with pytest.raises(db.DatabaseError):
+        db.restore_from_backup_file(str(wrong_path))

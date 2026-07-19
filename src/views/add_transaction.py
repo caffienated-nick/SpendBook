@@ -45,7 +45,7 @@ def open_add_transaction_dialog(page: ft.Page, on_saved, existing=None):
         ],
     )
 
-    # existing rows carry label_name/label_emoji (joined), not label_id --
+    # existing rows carry label_name (joined), not label_id --
     # so find the matching label's id from the current label list.
     existing_label_id = None
     if is_edit and existing["label_name"]:
@@ -55,7 +55,7 @@ def open_add_transaction_dialog(page: ft.Page, on_saved, existing=None):
     label_dropdown = ft.Dropdown(
         label="Label" if labels else "Label (add some in Settings first)",
         options=[
-            ft.dropdown.Option(key=str(l["id"]), text=f"{l['emoji']} {l['name']}")
+            ft.dropdown.Option(key=str(l["id"]), text=l["name"])
             for l in labels
         ],
         value=existing_label_id if is_edit else (str(labels[0]["id"]) if labels else None),
