@@ -87,7 +87,7 @@ class DebtsView(ft.Column):
         is_debt = row["type"] == "debt"  # they owe us
         color = ft.Colors.GREEN_600 if is_debt else ft.Colors.RED_400
         sign = "+" if is_debt else "-"
-        overdue = is_debt_overdue(row["created_at"], overdue_days=7)
+        overdue = is_debt_overdue(row["created_at"])
 
         def handle_settle(e, did=row["id"]):
             run_safely(

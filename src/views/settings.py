@@ -4,8 +4,10 @@ from database import (
     get_labels, add_label, delete_label,
     build_transactions_csv, build_debts_csv,
     create_backup_file, restore_from_backup_file, BACKUP_FILENAME,
+    get_overdue_days, set_overdue_days,
     DatabaseError,
 )
+from version import APP_VERSION, RELEASES_URL
 from views.ui_helpers import show_error
 
 
@@ -320,6 +322,42 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
         on_labels_changed()
 
     # -----------------------------------------------------------------
+    # Preferences
+    # -----------------------------------------------------------------
+
+    OVERDUE_OPTIONS = [3, 7, 14, 30]
+
+    overdue_days_dropdown = ft.Dropdown(
+        value=str(get_overdue_days()),
+        options=[ft.dropdown.Option(key=str(d), text=f"{d} days") for d in OVERDUE_OPTIONS],
+        dense=True,
+        width=110,
+    )
+
+    def handle_overdue_days_change(e):
+        try:
+            days = int(overdue_days_dropdown.value)
+        except (TypeError, ValueError):
+            return
+        set_overdue_days(days)
+
+    overdue_days_dropdown.on_select = handle_overdue_days_change
+
+    # -----------------------------------------------------------------
+    # About / manual update check
+    #
+    # Deliberately minimal: opens the GitHub Releases page in the
+    # device's browser so the person can see if a newer version exists
+    # and download it themselves. No auto-download, no background
+    # checking, no install prompts -- an in-app auto-updater would need
+    # Android install-package permissions and a fair bit of extra
+    # complexity/risk for a beta, minimal, offline-first app.
+    # -----------------------------------------------------------------
+
+    def handle_check_updates(e):
+        page.launch_url(RELEASES_URL)
+
+    # -----------------------------------------------------------------
     # Dialog assembly
     # -----------------------------------------------------------------
 
@@ -375,11 +413,37 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
                         spacing=8,
                     ),
                     backup_status,
+
+                    ft.Divider(),
+
+                    ft.Text("Preferences", weight=ft.FontWeight.BOLD, size=14),
+                    ft.Row(
+                        [
+                            ft.Text("Flag debts as overdue after", size=13, expand=True),
+                            overdue_days_dropdown,
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+
+                    ft.Divider(),
+
+                    ft.Text("About", weight=ft.FontWeight.BOLD, size=14),
+                    ft.Row(
+                        [
+                            ft.Text(f"Version {APP_VERSION}", size=12, color=ft.Colors.GREY, expand=True),
+                            ft.TextButton(
+                                "Check for updates",
+                                icon=ft.Icons.OPEN_IN_NEW,
+                                on_click=handle_check_updates,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
                 ],
                 tight=True,
                 spacing=10,
                 scroll=ft.ScrollMode.AUTO,
-                height=560,
+                height=670,
             ),
         ),
         actions=[

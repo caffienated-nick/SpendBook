@@ -104,6 +104,50 @@ def set_setting(key: str, value: str):
     )
     conn.commit()
     conn.close()
+
+
+DEFAULT_OVERDUE_DAYS = 7
+
+
+def get_overdue_days() -> int:
+    """
+    How many days an unsettled debt/due sits before it's flagged
+    "overdue" in the UI. User-configurable in Settings rather than a
+    fixed 7 -- shops have very different norms for how long they extend
+    credit before following up. Falls back to DEFAULT_OVERDUE_DAYS if
+    unset or if a bad value somehow got stored.
+    """
+    raw = get_setting("overdue_days", str(DEFAULT_OVERDUE_DAYS))
+    try:
+        value = int(raw)
+        return value if value > 0 else DEFAULT_OVERDUE_DAYS
+    except (TypeError, ValueError):
+        return DEFAULT_OVERDUE_DAYS
+
+
+def set_overdue_days(days: int):
+    set_setting("overdue_days", str(days))
+
+
+DEFAULT_STATS_WINDOW_DAYS = 30
+
+
+def get_stats_window_days() -> int:
+    """
+    How many days back the Stats tab's summary and label breakdown cover.
+    User-configurable (Settings) instead of a fixed 30 -- some shops may
+    want a tighter weekly view, others a full quarter.
+    """
+    raw = get_setting("stats_window_days", str(DEFAULT_STATS_WINDOW_DAYS))
+    try:
+        value = int(raw)
+        return value if value > 0 else DEFAULT_STATS_WINDOW_DAYS
+    except (TypeError, ValueError):
+        return DEFAULT_STATS_WINDOW_DAYS
+
+
+def set_stats_window_days(days: int):
+    set_setting("stats_window_days", str(days))
 # ---------------------------------------------------------------------------
 
 def get_labels():
@@ -319,14 +363,21 @@ def get_debt_totals():
     return row["owed_to_us"], row["we_owe"]
 
 
-def is_debt_overdue(created_at: str, overdue_days: int = 7) -> bool:
+def is_debt_overdue(created_at: str, overdue_days: int = None) -> bool:
     """
     A simple, dependency-free overdue check: parse the stored ISO date and
     compare against today. Used by the UI to color/badge old unsettled
     entries -- kept in Python (not SQL) since it's just for display, not
     filtering a large table.
+
+    If `overdue_days` isn't given, uses the user's configured threshold
+    (Settings -> Overdue after N days, default 7) instead of a fixed
+    number, so different shops can set this to match how long they
+    actually extend credit before following up.
     """
     from datetime import datetime
+    if overdue_days is None:
+        overdue_days = get_overdue_days()
     try:
         created = datetime.fromisoformat(created_at)
     except ValueError:
@@ -446,6 +497,75 @@ def get_summary_totals(days: int = 30):
     """, (f'-{days} days',)).fetchone()
     conn.close()
     return row["income"], row["expense"]
+
+
+def get_transaction_stats(days: int = 30):
+    """
+    A few extra numbers that are cheap to compute and genuinely useful
+    for a shop owner glancing at Stats: how many transactions happened,
+    the average size of an income/expense entry, and the single largest
+    of each -- helps spot an unusually large one-off vs. normal day-to-
+    day activity.
+    """
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT
+            COUNT(*) AS count,
+            COALESCE(AVG(CASE WHEN type = 'income' THEN amount END), 0) AS avg_income,
+            COALESCE(AVG(CASE WHEN type = 'expense' THEN amount END), 0) AS avg_expense,
+            COALESCE(MAX(CASE WHEN type = 'income' THEN amount END), 0) AS max_income,
+            COALESCE(MAX(CASE WHEN type = 'expense' THEN amount END), 0) AS max_expense
+        FROM transactions
+        WHERE created_at >= datetime('now', ?)
+    """, (f'-{days} days',)).fetchone()
+    conn.close()
+    return {
+        "count": row["count"],
+        "avg_income": row["avg_income"],
+        "avg_expense": row["avg_expense"],
+        "max_income": row["max_income"],
+        "max_expense": row["max_expense"],
+    }
+
+
+def get_period_comparison(days: int = 30):
+    """
+    Compares the current window (last `days` days) against the
+    immediately preceding window of the same length -- e.g. this 30 days
+    vs. the 30 days before that. Lets the Stats tab show "up/down vs
+    last period" instead of just a flat snapshot, which is a much more
+    useful signal for spotting trends.
+
+    Returns (current_net, previous_net, percent_change). percent_change
+    is None if the previous period had zero net (avoids a divide-by-zero
+    and a meaningless "infinite %" swing).
+    """
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT
+            COALESCE(SUM(CASE WHEN type = 'income' AND created_at >= datetime('now', ?) THEN amount ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN type = 'expense' AND created_at >= datetime('now', ?) THEN amount ELSE 0 END), 0)
+              AS current_net,
+            COALESCE(SUM(CASE WHEN type = 'income' AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?) THEN amount ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN type = 'expense' AND created_at >= datetime('now', ?) AND created_at < datetime('now', ?) THEN amount ELSE 0 END), 0)
+              AS previous_net
+        FROM transactions
+    """, (
+        f'-{days} days', f'-{days} days',
+        f'-{days * 2} days', f'-{days} days',
+        f'-{days * 2} days', f'-{days} days',
+    )).fetchone()
+    conn.close()
+
+    current_net = row["current_net"]
+    previous_net = row["previous_net"]
+
+    if previous_net == 0:
+        percent_change = None
+    else:
+        percent_change = ((current_net - previous_net) / abs(previous_net)) * 100
+
+    return current_net, previous_net, percent_change
 
 
 # ---------------------------------------------------------------------------

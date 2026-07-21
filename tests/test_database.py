@@ -194,6 +194,31 @@ def test_is_debt_overdue_respects_threshold(db):
     assert db.is_debt_overdue(two_days_ago, overdue_days=7) is False
 
 
+def test_overdue_days_setting_defaults_to_seven(db):
+    assert db.get_overdue_days() == 7
+
+
+def test_overdue_days_setting_persists(db):
+    db.set_overdue_days(3)
+    assert db.get_overdue_days() == 3
+
+
+def test_overdue_days_setting_falls_back_on_bad_value(db):
+    db.set_setting("overdue_days", "not a number")
+    assert db.get_overdue_days() == db.DEFAULT_OVERDUE_DAYS
+
+
+def test_is_debt_overdue_uses_configured_setting_by_default(db):
+    # Without an explicit overdue_days argument, is_debt_overdue should
+    # read the user's configured setting instead of a hardcoded value.
+    db.set_overdue_days(3)
+    five_days_ago = (datetime.now() - timedelta(days=5)).isoformat(timespec="seconds")
+    assert db.is_debt_overdue(five_days_ago) is True  # overdue at the new 3-day threshold
+
+    db.set_overdue_days(10)
+    assert db.is_debt_overdue(five_days_ago) is False  # not overdue at the new 10-day threshold
+
+
 def test_debt_search_matches_person_name(db):
     db.add_debt("Ramesh Kumar", 500.0, "debt", "udhaar", "2026-07-01T10:00:00")
     db.add_debt("Suresh", 200.0, "debt", "udhaar", "2026-07-01T10:00:00")
@@ -258,6 +283,77 @@ def test_daily_totals_fills_gaps_with_zero(db):
     days = db.get_daily_totals(days=7)
     assert len(days) == 7
     assert all(d["income"] == 0 and d["expense"] == 0 for d in days)
+
+
+def test_stats_window_days_defaults_to_thirty(db):
+    assert db.get_stats_window_days() == 30
+
+
+def test_stats_window_days_persists(db):
+    db.set_stats_window_days(90)
+    assert db.get_stats_window_days() == 90
+
+
+def test_stats_window_days_falls_back_on_bad_value(db):
+    db.set_setting("stats_window_days", "garbage")
+    assert db.get_stats_window_days() == db.DEFAULT_STATS_WINDOW_DAYS
+
+
+def test_transaction_stats_counts_and_averages(db):
+    label_id = db.add_label(name="Sales", color="grey500")
+    now = datetime.now().isoformat(timespec="seconds")
+
+    db.add_transaction(1000.0, "income", label_id, "sale1", now)
+    db.add_transaction(2000.0, "income", label_id, "sale2", now)
+    db.add_transaction(100.0, "expense", label_id, "exp1", now)
+    db.add_transaction(300.0, "expense", label_id, "exp2", now)
+
+    stats = db.get_transaction_stats(days=30)
+    assert stats["count"] == 4
+    assert stats["avg_income"] == 1500.0
+    assert stats["avg_expense"] == 200.0
+    assert stats["max_income"] == 2000.0
+    assert stats["max_expense"] == 300.0
+
+
+def test_transaction_stats_with_no_data_returns_zeros(db):
+    stats = db.get_transaction_stats(days=30)
+    assert stats["count"] == 0
+    assert stats["avg_income"] == 0
+    assert stats["max_expense"] == 0
+
+
+def test_period_comparison_compares_current_vs_previous_window(db):
+    label_id = db.add_label(name="Sales", color="grey500")
+    now = datetime.now()
+
+    # Current 30-day window: net = 2000 - 100 = 1900
+    db.add_transaction(2000.0, "income", label_id, "recent sale",
+                        now.isoformat(timespec="seconds"))
+    db.add_transaction(100.0, "expense", label_id, "recent expense",
+                        now.isoformat(timespec="seconds"))
+
+    # Previous 30-day window (31-60 days ago): net = 500 - 200 = 300
+    old = (now - timedelta(days=45)).isoformat(timespec="seconds")
+    db.add_transaction(500.0, "income", label_id, "old sale", old)
+    db.add_transaction(200.0, "expense", label_id, "old expense", old)
+
+    current_net, previous_net, pct_change = db.get_period_comparison(days=30)
+    assert current_net == 1900.0
+    assert previous_net == 300.0
+    assert pct_change == pytest.approx(((1900 - 300) / 300) * 100)
+
+
+def test_period_comparison_returns_none_percent_when_previous_period_empty(db):
+    label_id = db.add_label(name="Sales", color="grey500")
+    db.add_transaction(1000.0, "income", label_id, "sale",
+                        datetime.now().isoformat(timespec="seconds"))
+
+    # No transactions at all in the previous period -- percent_change
+    # should be None (not a divide-by-zero or a meaningless "infinite%").
+    current_net, previous_net, pct_change = db.get_period_comparison(days=30)
+    assert previous_net == 0
+    assert pct_change is None
 
 
 # ---------------------------------------------------------------------------
