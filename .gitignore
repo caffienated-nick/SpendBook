@@ -163,3 +163,4 @@ cython_debug/
 storage/
 spendbook.db 
 spendbook-release.jks
+keystore-base64.txt
