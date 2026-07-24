@@ -56,6 +56,41 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           ls "$ANDROID_SDK_ROOT"
 
+      - name: Decode signing keystore
+        # Without this, every build gets a fresh debug-signing key, so
+        # Android sees each downloaded APK as a "different app" and
+        # refuses to update in place -- forcing an uninstall + reinstall
+        # every time. This decodes a keystore stored as a GitHub secret
+        # (base64-encoded, never committed to the repo) back into a real
+        # .jks file, so every build signs with the SAME stable key.
+        #
+        # Requires two repo secrets to be set beforehand (Settings ->
+        # Secrets and variables -> Actions):
+        #   ANDROID_KEYSTORE_BASE64   -- output of `base64 -w0 my-key.jks`
+        #   ANDROID_KEYSTORE_PASSWORD -- the password used when creating it
+        # (this project uses the same password for both the store and
+        # the key, set with matching -storepass/-keypass when generating)
+        #
+        # If these secrets aren't set, this step does nothing and the
+        # build falls back to Flet's default debug signing (works fine,
+        # just means updates require uninstall/reinstall as before).
+        #
+        # Note: this step deliberately has NO `if:` condition -- GitHub
+        # Actions does not allow the `secrets` context in a step-level
+        # `if:` expression (a real, documented platform limitation, not
+        # a typo). Instead the emptiness check happens inside plain bash
+        # below, which works correctly whether the secret is set or not.
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/spendbook-release.jks"
+            echo "KEYSTORE_PATH=$RUNNER_TEMP/spendbook-release.jks" >> "$GITHUB_ENV"
+            echo "Keystore decoded."
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret set -- will fall back to debug signing."
+          fi
+
       - name: Build APK
         # --yes auto-confirms the "install Flutter/Android SDK?" prompt.
         # Without it, flet build apk blocks waiting for interactive input
@@ -78,11 +113,27 @@ jobs:
         # --compile-app/--compile-packages precompile .py to .pyc.
         # --cleanup-app/--cleanup-packages strip files not needed at
         # runtime (docs, tests, caches shipped inside dependencies).
-        run: >
-          uv run flet build apk --yes --no-rich-output
-          --split-per-abi
-          --compile-app --compile-packages
-          --cleanup-app --cleanup-packages
+        #
+        # Signing: if the keystore secret was decoded in the previous
+        # step, KEYSTORE_PATH is set and we add the signing flags so
+        # every build uses the SAME stable key (fixes Android refusing
+        # in-place updates). This is built as a plain bash conditional
+        # rather than a GitHub Actions expression ternary -- easier to
+        # reason about correctly and less likely to silently misbehave.
+        env:
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          BUILD_ARGS="--yes --no-rich-output --split-per-abi --compile-app --compile-packages --cleanup-app --cleanup-packages"
+
+          if [ -n "$KEYSTORE_PATH" ]; then
+            echo "Signing with the stable release keystore."
+            BUILD_ARGS="$BUILD_ARGS --android-signing-key-store $KEYSTORE_PATH --android-signing-key-alias spendbook"
+          else
+            echo "No keystore secret configured -- falling back to Flet's default debug signing. Builds will not update in place; see the Decode signing keystore step for setup instructions."
+          fi
+
+          uv run flet build apk $BUILD_ARGS
 
       - name: Report APK sizes
         # Printed directly in the Actions log so size regressions are
