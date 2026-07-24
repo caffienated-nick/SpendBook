@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/icon.png" width="300" alt="SpendBook icon">
+  <img src="src/assets/icon.png" width="320" alt="SpendBook icon">
 </p>
 
 <h1 align="center">SpendBook</h1>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: beta (v0.2.0-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: beta (v0.3.0-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -32,15 +32,18 @@ for a family shop.
   expense, net, and transaction count, shown above the transaction list.
 - **Debts & Dues (udhaar)** — track money customers owe the shop and
   money the shop owes suppliers, separately from day-to-day transactions.
-  Entries older than 7 days and still unsettled are flagged "overdue."
-  Mark as settled without deleting the history. Search by person or note.
+  Unsettled entries older than a configurable threshold (default 7 days)
+  are flagged "overdue." Mark as settled without deleting the history.
+  Search by person or note.
 - **Labels** — categorize transactions (e.g. Food, Rent, Sales), each
   with a color picked from a palette. Managed entirely from Settings;
   none are pre-seeded, so the list only ever contains categories you
   actually use.
-- **Stats** — a 30-day income/expense/net summary, a spending-by-label
-  breakdown, and a 14-day daily trend chart (grouped income/expense bars,
-  horizontally scrollable), all computed from the same local database.
+- **Stats** — income/expense/net summary over a selectable window
+  (7/30/90 days), a period-over-period comparison ("up/down vs previous
+  window"), transaction count and averages, largest single income/
+  expense, a spending-by-label breakdown, and a 14-day daily trend chart
+  (grouped income/expense bars, horizontally scrollable).
 - **CSV export** — share a transactions or debts/dues CSV via the
   device's native share sheet.
 - **Backup & Restore** — save the full database to your Downloads folder,
@@ -49,6 +52,9 @@ for a family shop.
   folder by any means (USB, cloud, etc.), then restore there.
 - **First-run setup guide** — a short one-time welcome dialog on a fresh
   install, pointing you at adding your first labels.
+- **Manual update check** — Settings shows the current version and a
+  button that opens this repo's Releases page in your browser. No
+  auto-download or auto-install; you choose when to update.
 - **Works fully offline.** All data lives in a local SQLite file
   (`src/spendbook.db`); nothing is sent anywhere.
 
@@ -72,6 +78,7 @@ SpendBook/
 │   ├── database.py           # all SQLite access -- the only file that
 │   │                          #   talks to the database directly
 │   ├── theme.py               # color scheme / theme mode
+│   ├── version.py             # app version + Releases URL (Settings display)
 │   ├── assets/
 │   │   ├── icon.png            # app icon (universal)
 │   │   ├── icon_android.png    # app icon (Android, no transparency)
@@ -79,15 +86,15 @@ SpendBook/
 │   └── views/
 │       ├── transactions.py     # Transactions tab (list, search, closing summary)
 │       ├── debts.py            # Debts & Dues tab (list, search, overdue badges)
-│       ├── stats.py            # Stats tab (summary, label breakdown, trend chart)
+│       ├── stats.py            # Stats tab (summary, comparison, breakdown, chart)
 │       ├── add_transaction.py  # add/edit transaction dialog
 │       ├── add_debt.py         # add/edit debt dialog
-│       ├── settings.py         # labels, export, backup/restore
+│       ├── settings.py         # labels, export, backup/restore, preferences, about
 │       ├── setup_guide.py      # first-run welcome dialog
 │       └── ui_helpers.py       # shared error banner + confirm-delete dialog
 └── tests/
     ├── conftest.py            # pytest fixture: fresh temp database per test
-    └── test_database.py       # tests for database.py (34 tests)
+    └── test_database.py       # tests for database.py (45 tests)
 ```
 
 ## Running the app (development)
@@ -218,6 +225,10 @@ updating to a new release. Found a bug? Please
 [open an issue](../../issues) with what happened and, if possible, a
 screenshot.
 
+The app itself has a manual update check (Settings → About → "Check for
+updates"), which just opens this Releases page in your browser — there's
+no auto-download or auto-install.
+
 ## Testing
 
 ### Automated tests (database layer)
@@ -242,12 +253,17 @@ the UI by hand:
 - Add, edit, and delete a transaction; confirm the balance and today's
   summary update correctly
 - Add, edit, settle, and delete a debt/due entry; confirm totals update
-- Check the overdue badge appears on unsettled debts older than 7 days
+- Change the overdue threshold in Settings → Preferences and confirm the
+  badge behavior actually changes
+- Change the Stats window (7/30/90 days) and confirm the summary,
+  comparison, and label breakdown all update
 - Search transactions and dues by note/label/person name
 - Add and delete labels (with colors) in Settings; confirm the
   transaction dropdown reflects changes immediately
 - Export both CSVs from Settings via the share sheet
 - Back up, then restore, and confirm all data comes back correctly
+- Tap "Check for updates" in Settings and confirm it opens the Releases
+  page
 - Try invalid input (empty/negative/non-numeric amounts) and confirm you
   get an inline error instead of a crash
 - Rotate the phone / resize the window and check nothing overflows the
@@ -261,6 +277,14 @@ Use **Settings → Backup & Restore** to save/restore the full database, or
 the CSV export for a spreadsheet-friendly copy. To reset the app
 completely, delete `spendbook.db` — it will be recreated empty the next
 time the app starts.
+
+## Known limitations
+
+- No cloud sync — this is intentional; backups are manual and local
+- No database migrations yet — a future schema change could require a
+  fresh install rather than a clean upgrade from an older version
+- Settings' UI hasn't been verified on-device for every change in this
+  release; if something in Settings looks off, please report it
 
 ## Tech stack
 
