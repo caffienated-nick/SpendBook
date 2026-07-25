@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: beta (v0.3.0-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: beta (v0.4.0-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -72,11 +72,11 @@ SpendBook/
 ├── pyproject.toml          # dependencies, app metadata, Android package id
 ├── .github/
 │   └── workflows/
-│       └── build-apk.yml    # builds the APK in the cloud on every push
+│       └── build-apk.yml    # builds + signs the APK in the cloud on every push
 ├── src/
 │   ├── main.py               # app entry point, navigation, tab/FAB wiring
-│   ├── database.py           # all SQLite access -- the only file that
-│   │                          #   talks to the database directly
+│   ├── database.py           # all SQLite access + schema migrations --
+│   │                          #   the only file that talks to the database
 │   ├── theme.py               # color scheme / theme mode
 │   ├── version.py             # app version + Releases URL (Settings display)
 │   ├── assets/
@@ -94,7 +94,7 @@ SpendBook/
 │       └── ui_helpers.py       # shared error banner + confirm-delete dialog
 └── tests/
     ├── conftest.py            # pytest fixture: fresh temp database per test
-    └── test_database.py       # tests for database.py (45 tests)
+    └── test_database.py       # tests for database.py (49 tests)
 ```
 
 ## Running the app (development)
@@ -172,6 +172,29 @@ A few extra fixes were needed to make this work in CI specifically:
   translation step, which reliably produces one smaller APK per CPU
   architecture instead of a single "fat" one.
 
+### Signing (so updates install in place)
+
+By default, `flet build apk` signs with a fresh debug key on every
+build, which means Android treats each downloaded APK as a different
+app and refuses to update in place — forcing an uninstall every time.
+
+The workflow supports signing with a **stable release keystore** instead,
+via two optional repo secrets:
+
+- `ANDROID_KEYSTORE_BASE64` — a keystore file (`keytool -genkey ...`),
+  base64-encoded (`base64 -w0 my-key.jks`)
+- `ANDROID_KEYSTORE_PASSWORD` — its password
+
+If these aren't set, the build falls back to debug signing automatically
+(the workflow checks for this in plain bash, not a GitHub Actions `if:`
+condition — the `secrets` context isn't allowed there, a real platform
+restriction that's easy to hit by accident).
+
+**Keep the `.jks` file and its password somewhere safe outside the
+repo.** If either is lost, a new keystore has to be generated, and
+every existing install will need to be uninstalled once more to move
+to the new key.
+
 ### How to trigger a build
 
 Push to `main` (or click **Run workflow** manually from the Actions tab
@@ -201,11 +224,6 @@ Then:
    Drive/email) and tap it to install. Android will warn about
    installing from an unknown source since it isn't from the Play Store
    — this is expected for a personal build.
-
-This build is debug-signed, which is fine for installing on your own
-device. If you ever want to publish to the Play Store, you'll need to
-set up a proper release keystore first (a separate, one-time step, not
-covered here).
 
 ### Android package identifier
 
@@ -245,6 +263,11 @@ real `spendbook.db`. This same suite runs automatically as the first
 step of the GitHub Actions build, so a broken database layer fails fast
 instead of wasting a 10+ minute APK build.
 
+Coverage includes the schema migration system itself: a simulated
+pre-migration database with real data (confirming it upgrades without
+data loss), repeated-startup safety, and a deliberately broken migration
+(confirming it rolls back cleanly instead of corrupting the schema).
+
 ### Manual testing checklist (UI)
 
 Automated tests only cover `database.py`. After installing a build, test
@@ -264,6 +287,8 @@ the UI by hand:
 - Back up, then restore, and confirm all data comes back correctly
 - Tap "Check for updates" in Settings and confirm it opens the Releases
   page
+- Install a new release **without** uninstalling the previous one first,
+  and confirm it updates in place rather than requiring a fresh install
 - Try invalid input (empty/negative/non-numeric amounts) and confirm you
   get an inline error instead of a crash
 - Rotate the phone / resize the window and check nothing overflows the
@@ -278,13 +303,17 @@ the CSV export for a spreadsheet-friendly copy. To reset the app
 completely, delete `spendbook.db` — it will be recreated empty the next
 time the app starts.
 
+Schema changes across versions are handled by a migration system in
+`database.py` (see the `MIGRATIONS` list and the template comment above
+it) — upgrading to a newer version should never require deleting your
+data, even when the database structure itself changes.
+
 ## Known limitations
 
 - No cloud sync — this is intentional; backups are manual and local
-- No database migrations yet — a future schema change could require a
-  fresh install rather than a clean upgrade from an older version
-- Settings' UI hasn't been verified on-device for every change in this
-  release; if something in Settings looks off, please report it
+- Some UI areas from recent releases (Settings sections, Stats window
+  selector) haven't been extensively tested across different devices —
+  please report anything that looks off
 
 ## Tech stack
 
