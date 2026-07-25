@@ -30,9 +30,48 @@ def get_connection():
         raise DatabaseError(f"Could not open database: {e}") from e
 
 
-def initialize_database():
-    conn = get_connection()
+def _get_schema_version(conn) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
 
+
+def _set_schema_version(conn, version: int):
+    # PRAGMA doesn't support parameter binding, so the int is inlined --
+    # safe here since it's always an int literal from MIGRATIONS' own
+    # indices, never user input.
+    conn.execute(f"PRAGMA user_version = {version}")
+
+
+# ---------------------------------------------------------------------------
+# Migrations
+#
+# Each function here takes a connection and brings the schema from
+# exactly one version to the next (e.g. _migrate_to_1 takes a fresh/
+# version-0 database to version 1). MIGRATIONS is an ordered list where
+# index N == the migration that produces version N+1.
+#
+# To add a new migration in a future release:
+#   1. Write a new _migrate_to_N function that ALTERs/CREATEs whatever
+#      changed, operating on tables that may already have real user data
+#      in them (so use ALTER TABLE / CREATE TABLE IF NOT EXISTS, never
+#      DROP or destructive rewrites).
+#   2. Append it to MIGRATIONS.
+#   3. Never remove or reorder existing entries -- someone upgrading
+#      from an old version needs every step run in original order.
+#
+# initialize_database() runs any migrations newer than the database's
+# current PRAGMA user_version, in order, all inside a single transaction
+# -- so a failure partway through rolls back cleanly instead of leaving
+# the schema half-migrated.
+# ---------------------------------------------------------------------------
+
+def _migrate_to_1(conn):
+    """
+    Version 0 -> 1: the original schema (labels, transactions, debts,
+    app_settings). Every database that existed before this migration
+    system was introduced is already at this shape, so this uses
+    CREATE TABLE IF NOT EXISTS -- it's a no-op on an existing database,
+    and creates the full schema from scratch on a brand new one.
+    """
     conn.execute("""
     CREATE TABLE IF NOT EXISTS labels(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,8 +119,64 @@ def initialize_database():
     );
     """)
 
-    conn.commit()
-    conn.close()
+
+# Ordered list of migrations. MIGRATIONS[0] takes version 0 -> 1,
+# MIGRATIONS[1] would take version 1 -> 2, and so on. Append here, never
+# reorder or remove.
+#
+# Template for the next migration, when one is actually needed:
+#
+#   def _migrate_to_2(conn):
+#       """Version 1 -> 2: <describe what changed and why>."""
+#       # Adding a column to an existing table with real data -- ALTER,
+#       # never DROP/recreate:
+#       conn.execute("ALTER TABLE transactions ADD COLUMN payment_method TEXT")
+#
+#       # Adding a brand new table -- CREATE TABLE IF NOT EXISTS is still
+#       # correct even here, in case a partially-applied earlier attempt
+#       # already created it:
+#       conn.execute("""
+#           CREATE TABLE IF NOT EXISTS some_new_table(
+#               id INTEGER PRIMARY KEY AUTOINCREMENT,
+#               ...
+#           );
+#       """)
+#
+#   MIGRATIONS.append(_migrate_to_2)
+#
+MIGRATIONS = [
+    _migrate_to_1,
+]
+
+
+def initialize_database():
+    conn = get_connection()
+    try:
+        current_version = _get_schema_version(conn)
+        target_version = len(MIGRATIONS)
+
+        if current_version < target_version:
+            # All pending migrations run inside one transaction: if
+            # migration 3 of 5 fails, the whole batch rolls back rather
+            # than leaving the schema partway upgraded (which would be
+            # much harder to diagnose or recover from than "the update
+            # didn't apply, try again").
+            conn.execute("BEGIN")
+            try:
+                for migration in MIGRATIONS[current_version:target_version]:
+                    migration(conn)
+                _set_schema_version(conn, target_version)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                raise DatabaseError(
+                    f"Database migration failed (was v{current_version}, "
+                    f"tried to reach v{target_version}): {e}"
+                ) from e
+        else:
+            conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

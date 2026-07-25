@@ -469,3 +469,111 @@ def test_restore_rejects_sqlite_file_missing_required_tables(db, tmp_path):
 
     with pytest.raises(db.DatabaseError):
         db.restore_from_backup_file(str(wrong_path))
+
+
+# ---------------------------------------------------------------------------
+# Schema migrations
+# ---------------------------------------------------------------------------
+
+def test_fresh_database_reaches_latest_schema_version(db):
+    conn = db.get_connection()
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version == len(db.MIGRATIONS)
+
+
+def test_initialize_database_is_safe_to_call_repeatedly(db):
+    # Simulates the app being closed and reopened multiple times --
+    # must not re-run migrations, error, or touch existing data.
+    label_id = db.add_label(name="Food", color="orange400")
+    db.add_transaction(100.0, "expense", label_id, "some data", "2026-01-01T10:00:00")
+
+    db.initialize_database()
+    db.initialize_database()
+
+    assert len(db.get_transactions()) == 1
+    assert db.get_transactions()[0]["note"] == "some data"
+
+
+def test_migration_preserves_existing_data_from_before_migration_system(db, tmp_path):
+    # Simulates a real upgrading user: a database created by the schema
+    # that existed before this migration system, with real data in it
+    # and user_version left at its default of 0.
+    import sqlite3
+
+    old_db_path = tmp_path / "pre_migration.db"
+    conn = sqlite3.connect(str(old_db_path))
+    conn.execute("""
+        CREATE TABLE labels(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL, emoji TEXT, color TEXT
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE transactions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            amount REAL NOT NULL, type TEXT NOT NULL, label_id INTEGER,
+            note TEXT, created_at TEXT NOT NULL
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE debts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            person_name TEXT NOT NULL, amount REAL NOT NULL, type TEXT NOT NULL,
+            note TEXT, created_at TEXT NOT NULL, settled INTEGER NOT NULL DEFAULT 0
+        );
+    """)
+    conn.execute("CREATE TABLE app_settings(key TEXT PRIMARY KEY, value TEXT);")
+    conn.execute("INSERT INTO labels (name, color) VALUES ('Food', 'orange400')")
+    conn.execute(
+        "INSERT INTO transactions (amount, type, label_id, note, created_at) "
+        "VALUES (500, 'expense', 1, 'pre-existing important data', '2026-01-01T10:00:00')"
+    )
+    conn.commit()
+    conn.close()
+
+    # Point the module at this simulated old database and run the real
+    # initialize_database() against it.
+    original_path = db.DB_PATH
+    db.DB_PATH = old_db_path
+    try:
+        db.initialize_database()
+
+        transactions = db.get_transactions()
+        assert len(transactions) == 1
+        assert transactions[0]["note"] == "pre-existing important data"
+
+        conn = db.get_connection()
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == len(db.MIGRATIONS)
+    finally:
+        db.DB_PATH = original_path
+
+
+def test_failed_migration_rolls_back_without_losing_data(db):
+    # A broken future migration must not corrupt the schema or lose data
+    # already in the database -- the whole batch should roll back.
+    label_id = db.add_label(name="Food", color="orange400")
+    db.add_transaction(100.0, "expense", label_id, "data before broken migration", "2026-01-01T10:00:00")
+
+    def _broken_migration(conn):
+        conn.execute("ALTER TABLE labels ADD COLUMN this_should_not_persist TEXT")
+        conn.execute("THIS IS NOT VALID SQL")
+
+    original_migrations = db.MIGRATIONS[:]
+    db.MIGRATIONS.append(_broken_migration)
+    try:
+        with pytest.raises(db.DatabaseError):
+            db.initialize_database()
+
+        # Schema version must not have advanced
+        conn = db.get_connection()
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == len(original_migrations)
+
+        # The partial ALTER TABLE from the broken migration must not persist
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(labels)").fetchall()]
+        assert "this_should_not_persist" not in columns
+
+        # Original data must be untouched
+        assert len(db.get_transactions()) == 1
+        assert db.get_transactions()[0]["note"] == "data before broken migration"
+    finally:
+        db.MIGRATIONS[:] = original_migrations
