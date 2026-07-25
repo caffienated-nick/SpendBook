@@ -478,6 +478,7 @@ def test_restore_rejects_sqlite_file_missing_required_tables(db, tmp_path):
 def test_fresh_database_reaches_latest_schema_version(db):
     conn = db.get_connection()
     version = conn.execute("PRAGMA user_version").fetchone()[0]
+    conn.close()
     assert version == len(db.MIGRATIONS)
 
 
@@ -544,6 +545,7 @@ def test_migration_preserves_existing_data_from_before_migration_system(db, tmp_
 
         conn = db.get_connection()
         assert conn.execute("PRAGMA user_version").fetchone()[0] == len(db.MIGRATIONS)
+        conn.close()
     finally:
         db.DB_PATH = original_path
 
@@ -571,6 +573,7 @@ def test_failed_migration_rolls_back_without_losing_data(db):
         # The partial ALTER TABLE from the broken migration must not persist
         columns = [row[1] for row in conn.execute("PRAGMA table_info(labels)").fetchall()]
         assert "this_should_not_persist" not in columns
+        conn.close()
 
         # Original data must be untouched
         assert len(db.get_transactions()) == 1
