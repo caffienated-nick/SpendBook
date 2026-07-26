@@ -54,6 +54,26 @@ def _get_or_create_storage_paths(page: ft.Page):
     return sp
 
 
+def _get_or_create_clipboard(page: ft.Page):
+    """
+    Reuse a single Clipboard service stashed on the page, same pattern as
+    _get_or_create_share/_get_or_create_storage_paths. page.clipboard
+    (the older API) is deprecated in this Flet version in favor of the
+    ft.Clipboard() service.
+    """
+    existing = getattr(page, "_spendbook_clipboard", None)
+    if existing is not None:
+        return existing
+    try:
+        clipboard = ft.Clipboard()
+        page.services.append(clipboard)
+        page.update()
+    except Exception:
+        return None
+    page._spendbook_clipboard = clipboard
+    return clipboard
+
+
 def open_settings_dialog(page: ft.Page, on_labels_changed):
     """
     Opens the Settings dialog: manage labels and export data to CSV via
@@ -228,36 +248,47 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     backup_status = ft.Text("", size=12, color=ft.Colors.GREEN_600)
 
     async def handle_backup(e):
-        sp = _get_or_create_storage_paths(page)
-        if sp is None:
-            backup_status.value = "Backup isn't available on this device/build."
-            backup_status.color = ft.Colors.RED_400
-            page.update()
-            return
-
         try:
-            downloads_dir = await sp.get_downloads_directory()
-        except Exception as path_err:
-            backup_status.value = f"Couldn't find Downloads folder: {path_err}"
-            backup_status.color = ft.Colors.RED_400
-            page.update()
-            return
+            sp = _get_or_create_storage_paths(page)
+            if sp is None:
+                backup_status.value = "Backup isn't available on this device/build."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
 
-        if not downloads_dir:
-            backup_status.value = "Downloads folder isn't available on this device."
-            backup_status.color = ft.Colors.RED_400
-            page.update()
-            return
+            try:
+                downloads_dir = await sp.get_downloads_directory()
+            except Exception as path_err:
+                backup_status.value = f"Couldn't find Downloads folder: {path_err}"
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
 
-        destination = f"{downloads_dir}/{BACKUP_FILENAME}"
-        try:
-            create_backup_file(destination)
-            backup_status.color = ft.Colors.GREEN_600
-            backup_status.value = f"Backed up to Downloads/{BACKUP_FILENAME}"
-        except DatabaseError as db_err:
+            if not downloads_dir:
+                backup_status.value = "Downloads folder isn't available on this device."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            destination = f"{downloads_dir}/{BACKUP_FILENAME}"
+            try:
+                create_backup_file(destination)
+                backup_status.color = ft.Colors.GREEN_600
+                backup_status.value = f"Backed up to Downloads/{BACKUP_FILENAME}"
+            except DatabaseError as db_err:
+                backup_status.color = ft.Colors.RED_400
+                backup_status.value = f"Backup failed: {db_err}"
+            page.update()
+        except Exception as unexpected_err:
+            # Same reasoning as _perform_restore's catch-all: a caught-
+            # but-uncaught-type exception here (e.g. a storage permission
+            # error) previously failed with no visible feedback at all.
             backup_status.color = ft.Colors.RED_400
-            backup_status.value = f"Backup failed: {db_err}"
-        page.update()
+            backup_status.value = f"Backup failed unexpectedly: {unexpected_err}"
+            try:
+                page.update()
+            except Exception:
+                pass
 
     def confirm_and_restore(e):
         def do_restore(confirm_e):
@@ -285,41 +316,57 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
         page.show_dialog(confirm_dialog)
 
     async def _perform_restore():
-        sp = _get_or_create_storage_paths(page)
-        if sp is None:
-            backup_status.value = "Restore isn't available on this device/build."
-            backup_status.color = ft.Colors.RED_400
-            page.update()
-            return
-
         try:
-            downloads_dir = await sp.get_downloads_directory()
-        except Exception as path_err:
-            backup_status.value = f"Couldn't find Downloads folder: {path_err}"
-            backup_status.color = ft.Colors.RED_400
-            page.update()
-            return
+            sp = _get_or_create_storage_paths(page)
+            if sp is None:
+                backup_status.value = "Restore isn't available on this device/build."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
 
-        if not downloads_dir:
-            backup_status.value = "Downloads folder isn't available on this device."
-            backup_status.color = ft.Colors.RED_400
-            page.update()
-            return
+            try:
+                downloads_dir = await sp.get_downloads_directory()
+            except Exception as path_err:
+                backup_status.value = f"Couldn't find Downloads folder: {path_err}"
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
 
-        source = f"{downloads_dir}/{BACKUP_FILENAME}"
-        try:
-            restore_from_backup_file(source)
-            backup_status.color = ft.Colors.GREEN_600
-            backup_status.value = "Restored. Reopen the app to see the restored data."
-        except DatabaseError as db_err:
+            if not downloads_dir:
+                backup_status.value = "Downloads folder isn't available on this device."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            source = f"{downloads_dir}/{BACKUP_FILENAME}"
+            try:
+                restore_from_backup_file(source)
+                backup_status.color = ft.Colors.GREEN_600
+                backup_status.value = "Restored. Reopen the app to see the restored data."
+            except DatabaseError as db_err:
+                backup_status.color = ft.Colors.RED_400
+                backup_status.value = f"Restore failed: {db_err}"
+            page.update()
+            # Refresh whatever's currently showing labels/transactions so
+            # anything already on screen reflects the restored data
+            # without forcing an app restart, where possible.
+            refresh_list()
+            on_labels_changed()
+        except Exception as unexpected_err:
+            # This is the critical addition: previously only DatabaseError
+            # was caught, so anything else -- e.g. a permissions error
+            # reading Downloads after a fresh reinstall, since Android
+            # storage permission grants are wiped on uninstall and must
+            # be re-granted -- failed completely silently. The Restore
+            # button appeared to "do nothing" with no error shown at all.
+            # This catch-all guarantees the user always sees *something*
+            # went wrong instead of nothing happening.
             backup_status.color = ft.Colors.RED_400
-            backup_status.value = f"Restore failed: {db_err}"
-        page.update()
-        # Refresh whatever's currently showing labels/transactions so
-        # anything already on screen reflects the restored data without
-        # forcing an app restart, where possible.
-        refresh_list()
-        on_labels_changed()
+            backup_status.value = f"Restore failed unexpectedly: {unexpected_err}"
+            try:
+                page.update()
+            except Exception:
+                pass
 
     # -----------------------------------------------------------------
     # Preferences
@@ -355,7 +402,66 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
     # -----------------------------------------------------------------
 
     def handle_check_updates(e):
-        page.launch_url(RELEASES_URL)
+        # Shows an in-app dialog instead of immediately opening a
+        # browser -- launch_url() previously fired straight away, which
+        # jumped the person out of the app with no confirmation. This
+        # keeps them in SpendBook; opening the Releases page is now an
+        # explicit, separate tap, and the link can be copied instead if
+        # they'd rather check on another device.
+        def open_in_browser(dialog_e):
+            page.pop_dialog()
+            page.launch_url(RELEASES_URL)
+
+        async def copy_link(dialog_e):
+            clipboard = _get_or_create_clipboard(page)
+            if clipboard is None:
+                copy_status.value = "Couldn't access clipboard on this device."
+                copy_status.color = ft.Colors.RED_400
+            else:
+                try:
+                    await clipboard.set(RELEASES_URL)
+                    copy_status.value = "Link copied."
+                    copy_status.color = ft.Colors.GREEN_600
+                except Exception as clip_err:
+                    copy_status.value = f"Couldn't copy: {clip_err}"
+                    copy_status.color = ft.Colors.RED_400
+            copy_status.visible = True
+            page.update()
+
+        def close(dialog_e):
+            page.pop_dialog()
+
+        copy_status = ft.Text("", size=11, visible=False)
+
+        update_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Check for updates"),
+            content=ft.Container(
+                width=280,
+                content=ft.Column(
+                    [
+                        ft.Text(f"You have version {APP_VERSION} installed.", size=13),
+                        ft.Text(
+                            "SpendBook doesn't check for updates automatically. "
+                            "To see if a newer version is available, visit the "
+                            "Releases page:",
+                            size=13,
+                        ),
+                        ft.Text(RELEASES_URL, size=11, color=ft.Colors.GREY, selectable=True),
+                        copy_status,
+                    ],
+                    tight=True,
+                    spacing=10,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Copy link", on_click=copy_link),
+                ft.TextButton("Cancel", on_click=close),
+                ft.FilledButton("Open in browser", on_click=open_in_browser),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.show_dialog(update_dialog)
 
     # -----------------------------------------------------------------
     # Dialog assembly
@@ -368,7 +474,14 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
         modal=True,
         title=ft.Text("Settings"),
         content=ft.Container(
-            width=280,
+            # Widened from 280 -> 320: at 280 several button labels
+            # ("Check for updates", "Transactions"/"Debts/Dues" side by
+            # side, "Backup now"/"Restore" side by side) were tight
+            # enough to visually squish/wrap awkwardly. 320 gives more
+            # breathing room while still comfortably fitting on a phone
+            # screen (typical usable width after system padding is
+            # ~340-360px on most devices).
+            width=320,
             content=ft.Column(
                 [
                     ft.Text("Labels", weight=ft.FontWeight.BOLD, size=14),
@@ -379,7 +492,7 @@ def open_settings_dialog(page: ft.Page, on_labels_changed):
                         "Add label",
                         icon=ft.Icons.ADD,
                         on_click=handle_add_label,
-                        width=280,
+                        width=320,
                     ),
                     label_error_text,
 

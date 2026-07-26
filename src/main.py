@@ -43,13 +43,22 @@ def main(page: ft.Page):
 
     pages = [transactions_view, debts_view, stats_view]
 
-    # expand=True + scroll=ADAPTIVE lets this container's content scroll
-    # whenever it's taller than the available viewport -- without this,
-    # rotating to landscape (much shorter viewport) clips content instead
-    # of letting you scroll to see the rest.
+    # A plain container holding the active tab's view. Each view
+    # (TransactionsView, DebtsView, StatsView) is itself a Column with
+    # scroll=ADAPTIVE/AUTO already set -- that's what makes each tab
+    # scrollable when its content is taller than the screen (e.g. after
+    # rotating to landscape, where the available height shrinks a lot).
+    #
+    # Important: this Container must NOT set its own `expand=True` +
+    # unbounded height combination on top of an already-scrollable
+    # Column child -- doing that previously gave the inner Column
+    # effectively unbounded height instead of the real viewport height,
+    # so it never realized it needed to scroll and content below the
+    # fold was simply unreachable. `expand=True` here is fine because
+    # SafeArea (below) provides the actual bounding height.
     body = ft.Container(
-        expand=True,
         content=pages[0],
+        expand=True,
     )
 
     # The FAB's behavior depends on which tab is currently open: on the
@@ -113,10 +122,8 @@ def main(page: ft.Page):
 
     page.add(
         ft.SafeArea(
-            ft.Container(
-                content=body,
-                expand=True,
-            )
+            content=body,
+            expand=True,
         )
     )
     page.update()

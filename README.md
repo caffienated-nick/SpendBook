@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/icon.png" width="320" alt="SpendBook icon">
+  <img src="src/assets/icon.png" width="120" alt="SpendBook icon">
 </p>
 
 <h1 align="center">SpendBook</h1>
@@ -314,6 +314,11 @@ data, even when the database structure itself changes.
 - Some UI areas from recent releases (Settings sections, Stats window
   selector) haven't been extensively tested across different devices —
   please report anything that looks off
+
+## Contributors
+
+- [@caffienated-nick](https://github.com/caffienated-nick) — creator & developer
+- [@zazriel](https://github.com/zazriel) — beta testing
 
 ## Tech stack
 
