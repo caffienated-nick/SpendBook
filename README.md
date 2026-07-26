@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/icon.png" width="120" alt="SpendBook icon">
+  <img src="src/assets/icon.png" width="320" alt="SpendBook icon">
 </p>
 
 <h1 align="center">SpendBook</h1>
@@ -317,8 +317,8 @@ data, even when the database structure itself changes.
 
 ## Contributors
 
-- [@caffienated-nick](https://github.com/caffienated-nick) — creator & developer
-- [@zazriel](https://github.com/zazriel) — beta testing
+- [@caffienated-nick](https://github.com/caffienated-nick) — Creator & Developer
+- [@zazriel](https://github.com/zazriel) — Beta Tester
 
 ## Tech stack
 
