@@ -121,7 +121,7 @@ Preview on your Android phone without building an APK — install the
 **Flet** app from the Play Store, then run:
 
 ```bash
-uv run flet run
+uv run flet run --android
 ```
 
 and scan the QR code it prints with the Flet app (phone and PC must be on
