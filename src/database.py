@@ -243,6 +243,25 @@ def get_stats_window_days() -> int:
 
 def set_stats_window_days(days: int):
     set_setting("stats_window_days", str(days))
+
+
+def check_and_record_version(current_version: str) -> bool:
+    """
+    Compares `current_version` against the last version recorded in
+    app_settings, and records the new one. Returns True if this is the
+    first launch since an update (including the very first launch ever,
+    when there's no prior recorded version) -- used to trigger an
+    automatic backup right after an update, since that's the moment data
+    is most at risk if something in the update goes wrong.
+
+    This is a proxy for "an update just happened" -- Flet/Android don't
+    expose a direct "app was just updated" event to the app itself, so
+    comparing the recorded version string against the running one on
+    each startup is the practical equivalent.
+    """
+    last_version = get_setting("last_known_version")
+    set_setting("last_known_version", current_version)
+    return last_version != current_version
 # ---------------------------------------------------------------------------
 
 def get_labels():
@@ -712,6 +731,7 @@ def build_debts_csv() -> str:
 # Downloads folder instead of an interactive file-open dialog.
 # ---------------------------------------------------------------------------
 
+BACKUP_SUBFOLDER = "SpendBook"
 BACKUP_FILENAME = "SpendBook_backup.db"
 
 

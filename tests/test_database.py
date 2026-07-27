@@ -580,3 +580,29 @@ def test_failed_migration_rolls_back_without_losing_data(db):
         assert db.get_transactions()[0]["note"] == "data before broken migration"
     finally:
         db.MIGRATIONS[:] = original_migrations
+
+
+# ---------------------------------------------------------------------------
+# Version-change detection (for auto-backup-on-update)
+# ---------------------------------------------------------------------------
+
+def test_check_and_record_version_true_on_first_call(db):
+    # No prior version recorded yet -- first-ever launch, treated the
+    # same as "an update just happened" so a first backup gets made.
+    assert db.check_and_record_version("1.0.0") is True
+
+
+def test_check_and_record_version_false_when_unchanged(db):
+    db.check_and_record_version("1.0.0")
+    assert db.check_and_record_version("1.0.0") is False
+
+
+def test_check_and_record_version_true_when_version_changes(db):
+    db.check_and_record_version("1.0.0")
+    assert db.check_and_record_version("1.1.0") is True
+
+
+def test_check_and_record_version_false_after_recording_new_version(db):
+    db.check_and_record_version("1.0.0")
+    db.check_and_record_version("1.1.0")
+    assert db.check_and_record_version("1.1.0") is False

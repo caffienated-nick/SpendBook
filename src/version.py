@@ -6,5 +6,5 @@ in this app and not worth the risk for something this simple. Update
 this alongside pyproject.toml's [project] version when cutting a release.
 """
 
-APP_VERSION = "0.4.1-beta"
+APP_VERSION = "0.4.2-beta"
 RELEASES_URL = "https://github.com/caffienated-nick/SpendBook/releases"

@@ -8,7 +8,7 @@ from views.debts import DebtsView
 from views.stats import StatsView
 from views.add_transaction import open_add_transaction_dialog
 from views.add_debt import open_add_debt_dialog
-from views.settings import open_settings_dialog
+from views.settings import open_settings_dialog, maybe_auto_backup_on_update
 from views.setup_guide import maybe_show_setup_guide
 
 
@@ -91,10 +91,20 @@ def main(page: ft.Page):
         on_change=change_tab,
     )
 
-    # Top app bar with a settings icon on the right: manage labels and
-    # export data.
+    # Top app bar with a settings icon on the right: manage labels,
+    # export data, and backup/restore. A change here (especially a full
+    # restore) can affect every tab at once, so all three views get
+    # refreshed -- not just Transactions, which was the previous bug:
+    # restoring correctly rewrote the database file, but only the
+    # Transactions tab (and the Settings dialog's own label list) was
+    # told to reload, so labels/debts elsewhere in the app looked
+    # unchanged until the whole app was closed and reopened.
     def handle_settings_click(e):
-        open_settings_dialog(page, on_labels_changed=transactions_view.refresh)
+        def refresh_all_views():
+            transactions_view.refresh()
+            debts_view.refresh()
+            stats_view.refresh()
+        open_settings_dialog(page, on_data_changed=refresh_all_views)
 
     page.appbar = ft.AppBar(
         title=ft.Text("SpendBook"),
@@ -131,6 +141,12 @@ def main(page: ft.Page):
     # Shows a one-time first-run guide (add your first label, etc.) if
     # this looks like a fresh install. No-op on every run after that.
     maybe_show_setup_guide(page, on_finished=transactions_view.refresh)
+
+    # If this launch is the first one since an update (or the very first
+    # launch ever), silently back up to Downloads/SpendBook/ -- see
+    # maybe_auto_backup_on_update's docstring for why this is
+    # backup-only and never auto-restores.
+    page.run_task(maybe_auto_backup_on_update, page)
 
 
 ft.run(main)
