@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/icon.png" width="120" alt="SpendBook icon">
+  <img src="src/assets/icon.png" width="320" alt="SpendBook icon">
 </p>
 
 <h1 align="center">SpendBook</h1>
@@ -121,7 +121,7 @@ Preview on your Android phone without building an APK — install the
 **Flet** app from the Play Store, then run:
 
 ```bash
-uv run flet run
+uv run flet run --android
 ```
 
 and scan the QR code it prints with the Flet app (phone and PC must be on
@@ -317,8 +317,8 @@ data, even when the database structure itself changes.
 
 ## Contributors
 
-- [@caffienated-nick](https://github.com/caffienated-nick) — creator & developer
-- [@zazriel](https://github.com/zazriel) — beta testing
+- [@caffienated-nick](https://github.com/caffienated-nick) — Creator & Developer
+- [@zazriel](https://github.com/zazriel) — Beta Tester
 
 ## Tech stack
 
