@@ -10,6 +10,7 @@ from views.add_transaction import open_add_transaction_dialog
 from views.add_debt import open_add_debt_dialog
 from views.settings import open_settings_dialog, maybe_auto_backup_on_update
 from views.setup_guide import maybe_show_setup_guide
+from views.auto_backup import notify_data_changed
 
 
 def main(page: ft.Page):
@@ -40,6 +41,24 @@ def main(page: ft.Page):
     transactions_view = TransactionsView(page)
     debts_view = DebtsView(page)
     stats_view = StatsView(page)
+
+    # Wrap each view's own refresh() so that every add/edit/delete/settle
+    # (each of which calls the view's refresh() to update what's shown)
+    # also resets the debounced auto-backup timer -- this is a safer
+    # hook point than trying to intercept every individual save/delete
+    # callback, since refresh() is guaranteed to run after every one of
+    # them regardless of which dialog or button triggered it.
+    _original_transactions_refresh = transactions_view.refresh
+    def _transactions_refresh_and_notify():
+        _original_transactions_refresh()
+        notify_data_changed(page)
+    transactions_view.refresh = _transactions_refresh_and_notify
+
+    _original_debts_refresh = debts_view.refresh
+    def _debts_refresh_and_notify():
+        _original_debts_refresh()
+        notify_data_changed(page)
+    debts_view.refresh = _debts_refresh_and_notify
 
     pages = [transactions_view, debts_view, stats_view]
 
@@ -104,6 +123,7 @@ def main(page: ft.Page):
             transactions_view.refresh()
             debts_view.refresh()
             stats_view.refresh()
+            notify_data_changed(page)
         open_settings_dialog(page, on_data_changed=refresh_all_views)
 
     page.appbar = ft.AppBar(
