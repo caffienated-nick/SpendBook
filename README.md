@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: beta (v0.4.0-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: beta (v0.5.0-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -50,6 +50,12 @@ for a family shop.
   or restore from it. The way to move your data to a new phone: back up
   on the old phone, transfer that one file to the new phone's Downloads
   folder by any means (USB, cloud, etc.), then restore there.
+- **Automatic backups during use** — beyond the manual button, the app
+  quietly backs itself up about 30 seconds after you stop making changes
+  (adding, editing, deleting, or settling anything), so you don't have
+  to remember to do it yourself. A burst of activity collapses into one
+  backup, not one per action, so this stays lightweight. Backups also
+  run automatically right after an update is detected.
 - **First-run setup guide** — a short one-time welcome dialog on a fresh
   install, pointing you at adding your first labels.
 - **Manual update check** — Settings shows the current version and a
@@ -74,7 +80,8 @@ SpendBook/
 │   └── workflows/
 │       └── build-apk.yml    # builds + signs the APK in the cloud on every push
 ├── src/
-│   ├── main.py               # app entry point, navigation, tab/FAB wiring
+│   ├── main.py               # app entry point, navigation, tab/FAB wiring,
+│   │                          #   wraps view refresh() calls to trigger auto-backup
 │   ├── database.py           # all SQLite access + schema migrations --
 │   │                          #   the only file that talks to the database
 │   ├── theme.py               # color scheme / theme mode
@@ -91,10 +98,12 @@ SpendBook/
 │       ├── add_debt.py         # add/edit debt dialog
 │       ├── settings.py         # labels, export, backup/restore, preferences, about
 │       ├── setup_guide.py      # first-run welcome dialog
+│       ├── auto_backup.py      # debounced auto-backup timer, triggered after
+│       │                       #   any data change anywhere in the app
 │       └── ui_helpers.py       # shared error banner + confirm-delete dialog
 └── tests/
     ├── conftest.py            # pytest fixture: fresh temp database per test
-    └── test_database.py       # tests for database.py (49 tests)
+    └── test_database.py       # tests for database.py (53 tests)
 ```
 
 ## Running the app (development)
@@ -266,7 +275,8 @@ instead of wasting a 10+ minute APK build.
 Coverage includes the schema migration system itself: a simulated
 pre-migration database with real data (confirming it upgrades without
 data loss), repeated-startup safety, and a deliberately broken migration
-(confirming it rolls back cleanly instead of corrupting the schema).
+(confirming it rolls back cleanly instead of corrupting the schema); and
+version-change detection used to trigger auto-backup after an update.
 
 ### Manual testing checklist (UI)
 
@@ -284,9 +294,12 @@ the UI by hand:
 - Add and delete labels (with colors) in Settings; confirm the
   transaction dropdown reflects changes immediately
 - Export both CSVs from Settings via the share sheet
-- Back up, then restore, and confirm all data comes back correctly
-- Tap "Check for updates" in Settings and confirm it opens the Releases
-  page
+- Back up, then restore, and confirm all data (including labels) comes
+  back correctly without needing to restart the app
+- Make a change, wait ~30 seconds without touching anything else, and
+  confirm a fresh backup appears in Downloads/SpendBook/ automatically
+- Tap "Check for updates" in Settings and confirm the dialog opens, and
+  that "Open in browser" actually opens the Releases page
 - Install a new release **without** uninstalling the previous one first,
   and confirm it updates in place rather than requiring a fresh install
 - Try invalid input (empty/negative/non-numeric amounts) and confirm you
@@ -298,10 +311,11 @@ the UI by hand:
 
 All data lives in a single SQLite file at `src/spendbook.db` (or next to
 the installed app's Python files, once built). There is no cloud sync.
-Use **Settings → Backup & Restore** to save/restore the full database, or
-the CSV export for a spreadsheet-friendly copy. To reset the app
-completely, delete `spendbook.db` — it will be recreated empty the next
-time the app starts.
+The app backs itself up automatically (see Features above), and
+**Settings → Backup & Restore** can also trigger one manually or restore
+from Downloads/SpendBook/. The CSV export is available for a
+spreadsheet-friendly copy. To reset the app completely, delete
+`spendbook.db` — it will be recreated empty the next time the app starts.
 
 Schema changes across versions are handled by a migration system in
 `database.py` (see the `MIGRATIONS` list and the template comment above
@@ -310,7 +324,8 @@ data, even when the database structure itself changes.
 
 ## Known limitations
 
-- No cloud sync — this is intentional; backups are manual and local
+- No cloud sync — this is intentional; backups are automatic but still
+  local-only
 - Some UI areas from recent releases (Settings sections, Stats window
   selector) haven't been extensively tested across different devices —
   please report anything that looks off
