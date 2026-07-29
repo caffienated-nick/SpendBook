@@ -333,7 +333,7 @@ data, even when the database structure itself changes.
 ## Contributors
 
 - [@caffienated-nick](https://github.com/caffienated-nick) — Creator & Developer
-- [@zazriel](https://github.com/zazriel) — Beta Tester
+- [@zazriel](https://github.com/zazriel) — Tester
 
 ## Tech stack
 
