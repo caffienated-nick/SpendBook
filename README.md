@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: beta (v0.5.0-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: beta (v0.5.1-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -333,7 +333,7 @@ data, even when the database structure itself changes.
 ## Contributors
 
 - [@caffienated-nick](https://github.com/caffienated-nick) — Creator & Developer
-- [@zazriel](https://github.com/zazriel) — Tester
+- [@zazriel](https://github.com/zazriel) — Beta Tester
 
 ## Tech stack
 
