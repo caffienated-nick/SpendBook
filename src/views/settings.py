@@ -100,6 +100,29 @@ def _get_or_create_clipboard(page: ft.Page):
     return clipboard
 
 
+def _get_or_create_url_launcher(page: ft.Page):
+    """
+    Reuse a single UrlLauncher service stashed on the page, same pattern
+    as the other _get_or_create_* helpers. This was the actual root
+    cause of "Open in browser" silently doing nothing: page.launch_url()
+    is not the real, documented API for this in Flet -- per Flet's own
+    docs (flet.dev/docs/services/urllauncher), URL launching is a
+    dedicated ft.UrlLauncher() service, same family as Share/
+    StoragePaths/Clipboard, and its launch_url method is async.
+    """
+    existing = getattr(page, "_spendbook_url_launcher", None)
+    if existing is not None:
+        return existing
+    try:
+        launcher = ft.UrlLauncher()
+        page.services.append(launcher)
+        page.update()
+    except Exception:
+        return None
+    page._spendbook_url_launcher = launcher
+    return launcher
+
+
 def open_settings_dialog(page: ft.Page, on_data_changed):
     """
     Opens the Settings dialog: manage labels, export data to CSV, and
@@ -447,9 +470,22 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
         # keeps them in SpendBook; opening the Releases page is now an
         # explicit, separate tap, and the link can be copied instead if
         # they'd rather check on another device.
-        def open_in_browser(dialog_e):
-            page.launch_url(RELEASES_URL)
-            page.pop_dialog()
+        async def open_in_browser(dialog_e):
+            launcher = _get_or_create_url_launcher(page)
+            if launcher is None:
+                copy_status.value = "Couldn't open a browser on this device."
+                copy_status.color = ft.Colors.RED_400
+                copy_status.visible = True
+                page.update()
+                return
+            try:
+                await launcher.launch_url(RELEASES_URL)
+                page.pop_dialog()
+            except Exception as launch_err:
+                copy_status.value = f"Couldn't open browser: {launch_err}"
+                copy_status.color = ft.Colors.RED_400
+                copy_status.visible = True
+                page.update()
 
         async def copy_link(dialog_e):
             clipboard = _get_or_create_clipboard(page)
