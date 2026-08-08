@@ -86,11 +86,24 @@ def main(page: ft.Page):
     # FAB is hidden there entirely.
     current_tab = {"index": 0}
 
+    # Tracks whether a view needs a refresh next time it's actually
+    # mounted -- see handle_settings_click and change_tab below for why
+    # this exists (refresh() calls .update() internally, which throws
+    # if the view isn't currently the mounted/visible tab).
+    needs_refresh = {0: False, 1: False, 2: False}
+
     def change_tab(e):
         current_tab["index"] = e.control.selected_index
         body.content = pages[current_tab["index"]]
         page.floating_action_button = None if current_tab["index"] == 2 else fab
         page.update()
+        # If this view was marked dirty (e.g. a restore happened while
+        # a different tab was showing), refresh it now -- page.update()
+        # above just mounted it, so calling .refresh() (which calls
+        # .update() internally) is now safe.
+        if needs_refresh[current_tab["index"]]:
+            needs_refresh[current_tab["index"]] = False
+            pages[current_tab["index"]].refresh()
 
     page.navigation_bar = ft.NavigationBar(
         destinations=[
@@ -112,17 +125,28 @@ def main(page: ft.Page):
 
     # Top app bar with a settings icon on the right: manage labels,
     # export data, and backup/restore. A change here (especially a full
-    # restore) can affect every tab at once, so all three views get
-    # refreshed -- not just Transactions, which was the previous bug:
-    # restoring correctly rewrote the database file, but only the
-    # Transactions tab (and the Settings dialog's own label list) was
-    # told to reload, so labels/debts elsewhere in the app looked
-    # unchanged until the whole app was closed and reopened.
+    # restore) can affect every tab at once, so every view needs to
+    # reflect the change eventually -- but only the CURRENTLY VISIBLE
+    # view's refresh() can safely run right now. refresh() calls
+    # .update() internally, and Flet only mounts one view at a time
+    # (see body.content = pages[...] in change_tab below) -- calling
+    # .update() on a view that isn't currently mounted throws "Control
+    # must be added to the page first". This is exactly what happened
+    # when Restore was tapped while sitting on the Transactions tab:
+    # debts_view.refresh() tried to update a DebtsView that was
+    # constructed but never actually attached to the page yet.
+    #
+    # Fix: refresh the visible view immediately, and mark the other two
+    # as "needs a refresh" -- change_tab (above) checks this flag and
+    # refreshes a view right after mounting it, the first time it
+    # becomes visible after being marked dirty.
+
     def handle_settings_click(e):
         def refresh_all_views():
-            transactions_view.refresh()
-            debts_view.refresh()
-            stats_view.refresh()
+            pages[current_tab["index"]].refresh()
+            for i in range(len(pages)):
+                if i != current_tab["index"]:
+                    needs_refresh[i] = True
             notify_data_changed(page)
         open_settings_dialog(page, on_data_changed=refresh_all_views)
 

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: beta (v0.5.1-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: beta (v0.5.2-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -304,8 +304,8 @@ the UI by hand:
   and confirm it updates in place rather than requiring a fresh install
 - Try invalid input (empty/negative/non-numeric amounts) and confirm you
   get an inline error instead of a crash
-- Rotate the phone / resize the window and check nothing overflows the
-  screen, and that both list tabs scroll correctly in landscape
+- Check nothing overflows the screen in normal (portrait) use. Landscape
+  is not actively verified -- see Known limitations.
 
 ## Data & backups
 
@@ -326,6 +326,11 @@ data, even when the database structure itself changes.
 
 - No cloud sync — this is intentional; backups are automatic but still
   local-only
+- Landscape orientation isn't fully reliable on some devices (observed
+  on at least one non-Pixel Android phone, where scrolling doesn't work
+  correctly in landscape). The app is designed and tested for portrait
+  use; landscape works on most devices but isn't actively maintained,
+  since portrait is the intended way to use it.
 - Some UI areas from recent releases (Settings sections, Stats window
   selector) haven't been extensively tested across different devices —
   please report anything that looks off
