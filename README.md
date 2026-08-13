@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: beta (v0.5.2-beta)</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: v1.0.0</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -246,9 +246,13 @@ upload. Don't change it casually once you've started using real builds.
 ## Releases
 
 Tagged builds are published under [Releases](../../releases) with a
-downloadable APK. Current status: **beta** — expect occasional rough
-edges, and back up your data (Settings → Backup & Restore) before
-updating to a new release. Found a bug? Please
+downloadable APK. As of v1.0.0, SpendBook has moved past beta: the core
+features have been used and tested in real day-to-day shop use, and the
+issues found along the way (see release history) have been fixed. It's
+still a small, actively-maintained project though, not a polished
+commercial app — back up your data (Settings → Backup & Restore, or
+rely on the automatic backups) before updating to a new release, same
+as you would for any app you depend on daily. Found a bug? Please
 [open an issue](../../issues) with what happened and, if possible, a
 screenshot.
 
@@ -331,9 +335,9 @@ data, even when the database structure itself changes.
   correctly in landscape). The app is designed and tested for portrait
   use; landscape works on most devices but isn't actively maintained,
   since portrait is the intended way to use it.
-- Some UI areas from recent releases (Settings sections, Stats window
-  selector) haven't been extensively tested across different devices —
-  please report anything that looks off
+- Testing has been done on a small number of real devices (primarily
+  Pixel and one Samsung phone). If something looks or behaves
+  differently on your device, please report it.
 
 ## Contributors
 
