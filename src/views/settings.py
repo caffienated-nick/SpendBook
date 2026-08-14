@@ -342,6 +342,61 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
             except Exception:
                 pass
 
+    async def handle_share_backup(e):
+        # Lets the person directly access/send the backup file via
+        # Android's share sheet, working around a real platform quirk:
+        # Flet's get_downloads_directory() (a thin wrapper over
+        # Flutter's path_provider plugin) doesn't always return the
+        # true public Download folder on every device -- on some
+        # phones it silently returns a private, app-only folder that
+        # doesn't show up in a file manager at all (a known upstream
+        # Flutter/Android bug, not something fixable by renaming our
+        # subfolder). Backup/Restore still work fine either way, since
+        # both consistently use the same path -- this button is purely
+        # for the person to get the file OUT of the app manually, e.g.
+        # to move it to a new phone.
+        try:
+            import os
+            sp = _get_or_create_storage_paths(page)
+            if sp is None:
+                backup_status.value = "Sharing isn't available on this device/build."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            downloads_dir = await sp.get_downloads_directory()
+            if not downloads_dir:
+                backup_status.value = "Couldn't locate the backup file's folder."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            source = _get_backup_path(downloads_dir)
+            if not os.path.exists(source):
+                backup_status.value = "No backup found yet -- tap Backup now first."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            share = _get_or_create_share(page)
+            if share is None:
+                backup_status.value = "Sharing isn't available on this device/build."
+                backup_status.color = ft.Colors.RED_400
+                page.update()
+                return
+
+            await share.share_files(
+                files=[ft.ShareFile(path=source, name=BACKUP_FILENAME)],
+                subject="SpendBook backup",
+            )
+        except Exception as unexpected_err:
+            backup_status.color = ft.Colors.RED_400
+            backup_status.value = f"Couldn't share backup: {unexpected_err}"
+            try:
+                page.update()
+            except Exception:
+                pass
+
     def confirm_and_restore(e):
         def do_restore(confirm_e):
             page.pop_dialog()
@@ -598,9 +653,10 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
 
                     ft.Text("Backup & Restore", weight=ft.FontWeight.BOLD, size=14),
                     ft.Text(
-                        "Saves the full database to Downloads. To move to a "
-                        "new phone: back up here, transfer the file to the "
-                        "new phone's Downloads folder, then restore there.",
+                        "Backs up the full database on this device. On some "
+                        "phones the backup folder isn't visible in a file "
+                        "manager -- use \"Share backup file\" below to send it "
+                        "directly (e.g. to move data to a new phone).",
                         size=11, color=ft.Colors.GREY,
                     ),
                     ft.Row(
@@ -621,6 +677,13 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
                             ),
                         ],
                         spacing=8,
+                    ),
+                    ft.OutlinedButton(
+                        "Share backup file",
+                        icon=ft.Icons.SHARE_OUTLINED,
+                        on_click=handle_share_backup,
+                        width=320,
+                        style=_SMALL_BUTTON_STYLE,
                     ),
                     backup_status,
 
