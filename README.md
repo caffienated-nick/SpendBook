@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: v1.0.0</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: v1.0.1</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -46,10 +46,12 @@ for a family shop.
   (grouped income/expense bars, horizontally scrollable).
 - **CSV export** — share a transactions or debts/dues CSV via the
   device's native share sheet.
-- **Backup & Restore** — save the full database to your Downloads folder,
-  or restore from it. The way to move your data to a new phone: back up
-  on the old phone, transfer that one file to the new phone's Downloads
-  folder by any means (USB, cloud, etc.), then restore there.
+- **Backup & Restore** — save the full database on-device, or restore
+  from it. A "Share backup file" button sends the backup directly via
+  Android's native share sheet — the practical way to move your data to
+  a new phone, and a workaround for a known Android/Flutter quirk where
+  the backup's folder isn't visible in every file manager (the backup
+  itself still saves and restores correctly either way).
 - **Automatic backups during use** — beyond the manual button, the app
   quietly backs itself up about 30 seconds after you stop making changes
   (adding, editing, deleting, or settling anything), so you don't have
@@ -300,8 +302,11 @@ the UI by hand:
 - Export both CSVs from Settings via the share sheet
 - Back up, then restore, and confirm all data (including labels) comes
   back correctly without needing to restart the app
+- Tap "Share backup file" and confirm the share sheet opens with a real
+  backup file attached
 - Make a change, wait ~30 seconds without touching anything else, and
-  confirm a fresh backup appears in Downloads/SpendBook/ automatically
+  confirm a fresh auto-backup was created (share it to check its
+  timestamp, since the folder itself may not be visible on your device)
 - Tap "Check for updates" in Settings and confirm the dialog opens, and
   that "Open in browser" actually opens the Releases page
 - Install a new release **without** uninstalling the previous one first,
@@ -317,9 +322,12 @@ All data lives in a single SQLite file at `src/spendbook.db` (or next to
 the installed app's Python files, once built). There is no cloud sync.
 The app backs itself up automatically (see Features above), and
 **Settings → Backup & Restore** can also trigger one manually or restore
-from Downloads/SpendBook/. The CSV export is available for a
-spreadsheet-friendly copy. To reset the app completely, delete
-`spendbook.db` — it will be recreated empty the next time the app starts.
+from it. On some devices the backup's folder isn't visible in a file
+manager (a known Android/Flutter platform quirk); use the **Share
+backup file** button there to get the file out via the share sheet
+instead. The CSV export is available for a spreadsheet-friendly copy.
+To reset the app completely, delete `spendbook.db` — it will be
+recreated empty the next time the app starts.
 
 Schema changes across versions are handled by a migration system in
 `database.py` (see the `MIGRATIONS` list and the template comment above
