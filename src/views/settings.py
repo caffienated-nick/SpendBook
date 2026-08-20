@@ -66,6 +66,33 @@ def _get_or_create_storage_paths(page: ft.Page):
     return sp
 
 
+def _get_or_create_file_picker(page: ft.Page):
+    """
+    Reuse a single FilePicker service stashed on the page, same pattern
+    as the other _get_or_create_* helpers.
+
+    Note: an earlier version of this app used FilePicker.save_file() for
+    CSV export, which crashed on a real APK build ("Unknown control:
+    FilePicker") -- that's why export was moved to Share instead. This
+    is a DIFFERENT method on the same control: multiple independent bug
+    reports against Flet (e.g. flet-dev/flet#5301, #5373) confirm that
+    pick_files() specifically keeps working correctly on real Android
+    builds even in versions where save_file() is broken, so it's safe
+    to use here for restore's "pick a file to restore from" flow.
+    """
+    existing = getattr(page, "_spendbook_file_picker", None)
+    if existing is not None:
+        return existing
+    try:
+        picker = ft.FilePicker()
+        page.services.append(picker)
+        page.update()
+    except Exception:
+        return None
+    page._spendbook_file_picker = picker
+    return picker
+
+
 def _get_backup_path(downloads_dir: str) -> str:
     """
     Builds the full backup file path inside a dedicated SpendBook
@@ -121,6 +148,32 @@ def _get_or_create_url_launcher(page: ft.Page):
         return None
     page._spendbook_url_launcher = launcher
     return launcher
+
+
+def _get_or_create_file_picker(page: ft.Page):
+    """
+    Reuse a single FilePicker service stashed on the page, same pattern
+    as the other _get_or_create_* helpers.
+
+    Caution: FilePicker.save_file previously caused a real crash on a
+    packaged Android build ("Unknown control: FilePicker"), which is
+    why CSV export was moved to Share instead of a save-file dialog.
+    pick_files is a different method and may behave differently, but
+    this isn't guaranteed -- if FilePicker fails to construct at all,
+    this returns None so callers can show a clear "not available"
+    message instead of crashing the whole Settings dialog.
+    """
+    existing = getattr(page, "_spendbook_file_picker", None)
+    if existing is not None:
+        return existing
+    try:
+        picker = ft.FilePicker()
+        page.services.append(picker)
+        page.update()
+    except Exception:
+        return None
+    page._spendbook_file_picker = picker
+    return picker
 
 
 def open_settings_dialog(page: ft.Page, on_data_changed):
@@ -422,39 +475,45 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
         )
         page.show_dialog(confirm_dialog)
 
-    async def _perform_restore():
+    async def _perform_restore(explicit_source: str = None):
         try:
-            sp = _get_or_create_storage_paths(page)
-            if sp is None:
-                backup_status.value = "Restore isn't available on this device/build."
-                backup_status.color = ft.Colors.RED_400
-                page.update()
-                return
+            if explicit_source is not None:
+                # Came from the file picker -- the user chose the exact
+                # file, so skip the Downloads auto-detection below
+                # entirely and just use it.
+                source = explicit_source
+            else:
+                sp = _get_or_create_storage_paths(page)
+                if sp is None:
+                    backup_status.value = "Restore isn't available on this device/build."
+                    backup_status.color = ft.Colors.RED_400
+                    page.update()
+                    return
 
-            try:
-                downloads_dir = await sp.get_downloads_directory()
-            except Exception as path_err:
-                backup_status.value = f"Couldn't find Downloads folder: {path_err}"
-                backup_status.color = ft.Colors.RED_400
-                page.update()
-                return
+                try:
+                    downloads_dir = await sp.get_downloads_directory()
+                except Exception as path_err:
+                    backup_status.value = f"Couldn't find Downloads folder: {path_err}"
+                    backup_status.color = ft.Colors.RED_400
+                    page.update()
+                    return
 
-            if not downloads_dir:
-                backup_status.value = "Downloads folder isn't available on this device."
-                backup_status.color = ft.Colors.RED_400
-                page.update()
-                return
+                if not downloads_dir:
+                    backup_status.value = "Downloads folder isn't available on this device."
+                    backup_status.color = ft.Colors.RED_400
+                    page.update()
+                    return
 
-            import os
-            new_style_source = os.path.join(downloads_dir, BACKUP_SUBFOLDER, BACKUP_FILENAME)
-            old_style_source = os.path.join(downloads_dir, BACKUP_FILENAME)
+                import os
+                new_style_source = os.path.join(downloads_dir, BACKUP_SUBFOLDER, BACKUP_FILENAME)
+                old_style_source = os.path.join(downloads_dir, BACKUP_FILENAME)
 
-            # Backups are now stored in a Downloads/SpendBook subfolder
-            # (previously directly in Downloads). Check the new location
-            # first, but fall back to the old flat path so anyone who
-            # backed up before this change doesn't see a false "file not
-            # found" just because where we look changed underneath them.
-            source = new_style_source if os.path.exists(new_style_source) else old_style_source
+                # Backups are now stored in a Downloads/SpendBook subfolder
+                # (previously directly in Downloads). Check the new location
+                # first, but fall back to the old flat path so anyone who
+                # backed up before this change doesn't see a false "file not
+                # found" just because where we look changed underneath them.
+                source = new_style_source if os.path.exists(new_style_source) else old_style_source
 
             try:
                 restore_from_backup_file(source)
@@ -484,6 +543,71 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
                 page.update()
             except Exception:
                 pass
+
+    async def handle_restore_from_file(e):
+        # Alternative to the Downloads-only restore above: lets the user
+        # pick ANY file from ANY accessible location via Android's real
+        # file picker -- added because get_downloads_directory() doesn't
+        # reliably point at a Browse-able folder on every device (see
+        # the Share backup file button's docstring for the same
+        # underlying platform quirk). This is the fix for that: if you
+        # can't reach the Downloads folder at all, you can still restore
+        # from wherever you actually saved/received the backup file
+        # (e.g. after sharing it to yourself, or downloading it from
+        # cloud storage into a folder you can navigate to).
+        picker = _get_or_create_file_picker(page)
+        if picker is None:
+            backup_status.value = "File picker isn't available on this device/build."
+            backup_status.color = ft.Colors.RED_400
+            page.update()
+            return
+
+        try:
+            files = await picker.pick_files(
+                dialog_title="Choose a SpendBook backup file",
+                file_type=ft.FilePickerFileType.ANY,
+                allow_multiple=False,
+            )
+        except Exception as pick_err:
+            backup_status.value = f"Couldn't open file picker: {pick_err}"
+            backup_status.color = ft.Colors.RED_400
+            page.update()
+            return
+
+        if not files:
+            # User cancelled the picker -- not an error, just do nothing.
+            return
+
+        chosen_path = files[0].path
+        if not chosen_path:
+            backup_status.value = "Couldn't get a usable path for that file."
+            backup_status.color = ft.Colors.RED_400
+            page.update()
+            return
+
+        def do_restore_from_file(confirm_e):
+            page.pop_dialog()
+            page.run_task(_perform_restore, chosen_path)
+
+        def cancel_restore_from_file(confirm_e):
+            page.pop_dialog()
+
+        confirm_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Restore from this file?"),
+            content=ft.Text(
+                f"This replaces ALL current data (transactions, debts, "
+                f"labels) with what's in:\n\n{chosen_path}\n\n"
+                f"This can't be undone. Make sure that file is the "
+                f"backup you actually want."
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=cancel_restore_from_file),
+                ft.TextButton("Restore", style=ft.ButtonStyle(color=ft.Colors.RED_400), on_click=do_restore_from_file),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.show_dialog(confirm_dialog)
 
     # -----------------------------------------------------------------
     # Preferences
@@ -655,8 +779,10 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
                     ft.Text(
                         "Backs up the full database on this device. On some "
                         "phones the backup folder isn't visible in a file "
-                        "manager -- use \"Share backup file\" below to send it "
-                        "directly (e.g. to move data to a new phone).",
+                        "manager -- use \"Share backup file\" to send it "
+                        "directly, or \"Restore from file\" to pick a backup "
+                        "from anywhere (e.g. after saving one from another "
+                        "app or the cloud).",
                         size=11, color=ft.Colors.GREY,
                     ),
                     ft.Row(
@@ -678,12 +804,24 @@ def open_settings_dialog(page: ft.Page, on_data_changed):
                         ],
                         spacing=8,
                     ),
-                    ft.OutlinedButton(
-                        "Share backup file",
-                        icon=ft.Icons.SHARE_OUTLINED,
-                        on_click=handle_share_backup,
-                        width=320,
-                        style=_SMALL_BUTTON_STYLE,
+                    ft.Row(
+                        [
+                            ft.OutlinedButton(
+                                "Share backup file",
+                                icon=ft.Icons.SHARE_OUTLINED,
+                                on_click=handle_share_backup,
+                                expand=True,
+                                style=_SMALL_BUTTON_STYLE,
+                            ),
+                            ft.OutlinedButton(
+                                "Restore from file",
+                                icon=ft.Icons.FOLDER_OPEN,
+                                on_click=handle_restore_from_file,
+                                expand=True,
+                                style=_SMALL_BUTTON_STYLE,
+                            ),
+                        ],
+                        spacing=8,
                     ),
                     backup_status,
 

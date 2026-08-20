@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Status: v1.0.1</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
+  <strong>Status: v1.1.0</strong> — see <a href="../../releases">Releases</a> for downloadable APKs.
 </p>
 
 ---
@@ -47,11 +47,14 @@ for a family shop.
 - **CSV export** — share a transactions or debts/dues CSV via the
   device's native share sheet.
 - **Backup & Restore** — save the full database on-device, or restore
-  from it. A "Share backup file" button sends the backup directly via
-  Android's native share sheet — the practical way to move your data to
-  a new phone, and a workaround for a known Android/Flutter quirk where
-  the backup's folder isn't visible in every file manager (the backup
-  itself still saves and restores correctly either way).
+  from it. Two workarounds for a known Android/Flutter quirk where the
+  backup's folder isn't visible in every file manager (the backup
+  itself still saves and restores correctly regardless): "Share backup
+  file" sends it directly via Android's native share sheet, and
+  "Restore from file" opens a real file picker so you can restore from
+  any file you can navigate to -- not just the one auto-detected
+  location. Together these are the practical way to move data to a new
+  phone.
 - **Automatic backups during use** — beyond the manual button, the app
   quietly backs itself up about 30 seconds after you stop making changes
   (adding, editing, deleting, or settling anything), so you don't have
@@ -304,6 +307,10 @@ the UI by hand:
   back correctly without needing to restart the app
 - Tap "Share backup file" and confirm the share sheet opens with a real
   backup file attached
+- Tap "Restore from file", pick a backup file from a location outside
+  the app's own Downloads folder (e.g. one you saved via the share
+  sheet, or downloaded from cloud storage), confirm the picker opens
+  without crashing, and confirm the restore completes correctly
 - Make a change, wait ~30 seconds without touching anything else, and
   confirm a fresh auto-backup was created (share it to check its
   timestamp, since the folder itself may not be visible on your device)
@@ -323,11 +330,13 @@ the installed app's Python files, once built). There is no cloud sync.
 The app backs itself up automatically (see Features above), and
 **Settings → Backup & Restore** can also trigger one manually or restore
 from it. On some devices the backup's folder isn't visible in a file
-manager (a known Android/Flutter platform quirk); use the **Share
-backup file** button there to get the file out via the share sheet
-instead. The CSV export is available for a spreadsheet-friendly copy.
-To reset the app completely, delete `spendbook.db` — it will be
-recreated empty the next time the app starts.
+manager (a known Android/Flutter platform quirk); use **Share
+backup file** to get the file out via the share sheet, or **Restore
+from file** to pick a backup from anywhere on the device instead of
+relying on auto-detecting the Downloads folder. The CSV export is
+available for a spreadsheet-friendly copy. To reset the app completely,
+delete `spendbook.db` — it will be recreated empty the next time the
+app starts.
 
 Schema changes across versions are handled by a migration system in
 `database.py` (see the `MIGRATIONS` list and the template comment above
@@ -346,6 +355,12 @@ data, even when the database structure itself changes.
 - Testing has been done on a small number of real devices (primarily
   Pixel and one Samsung phone). If something looks or behaves
   differently on your device, please report it.
+- "Restore from file" uses Android's file picker, which has previously
+  caused a real crash in this app in a different context (CSV export's
+  original save-file dialog, since replaced with the share sheet). The
+  restore version uses a different underlying method and has been
+  tested, but if it misbehaves on your device, "Share backup file" +
+  the Downloads-based Restore button are the fallback path.
 
 ## Contributors
 
